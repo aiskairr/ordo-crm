@@ -1,0 +1,128 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light;
+  --crm-accent: #3038a4;
+  --crm-accent-soft: rgba(48, 56, 164, 0.12);
+  --bg: #d8dfef;
+  --surface: rgba(255, 255, 255, 0.84);
+  --surface-raised: rgba(255, 255, 255, 0.94);
+  --panel: rgba(255, 255, 255, 0.92);
+  --panel-strong: #f9fbff;
+  --panel-muted: #e9eefb;
+  --text: #141a2f;
+  --muted: #69728d;
+  --border: rgba(67, 77, 134, 0.16);
+  --border-strong: rgba(67, 77, 134, 0.22);
+  --primary: #3038a4;
+  --primary-strong: #3038a4;
+  --primary-gradient: linear-gradient(135deg, #15182b 0%, #3038a4 100%);
+  --danger: #e11d48;
+  --success: #0f9f6e;
+  --warning: #d97706;
+  --orange: #ea580c;
+  --cyan: #0891b2;
+  --violet: #7c3aed;
+  --sidebar: #15182b;
+  --sidebar-soft: rgba(255, 255, 255, 0.1);
+  --sidebar-active: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, #e4ecff 100%);
+  --shadow: 0 28px 70px rgba(20, 26, 47, 0.14);
+  --shadow-soft: 0 18px 40px rgba(78, 91, 141, 0.1);
+}
+
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #101321;
+  --surface: rgba(19, 22, 38, 0.82);
+  --surface-raised: rgba(24, 28, 46, 0.92);
+  --panel: rgba(24, 29, 47, 0.94);
+  --panel-strong: #1b2135;
+  --panel-muted: #13172a;
+  --text: #f5f7ff;
+  --muted: #9aa5c0;
+  --border: rgba(133, 146, 209, 0.12);
+  --border-strong: rgba(133, 146, 209, 0.2);
+  --shadow: 0 34px 90px rgba(5, 10, 24, 0.46);
+  --shadow-soft: 0 22px 54px rgba(8, 12, 26, 0.34);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(48, 56, 164, 0.16), transparent 26%),
+    radial-gradient(circle at top right, rgba(21, 24, 43, 0.1), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, transparent 26%),
+    var(--bg);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body[data-mode="dark"] {
+  background:
+    radial-gradient(circle at top left, rgba(48, 56, 164, 0.2), transparent 24%),
+    radial-gradient(circle at top right, rgba(21, 24, 43, 0.22), transparent 20%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 28%),
+    var(--bg);
+}
+
+body.density-compact {
+  font-size: 14px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+button:active,
+a:active {
+  transform: translateY(1px);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, white);
+  outline-offset: 2px;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}

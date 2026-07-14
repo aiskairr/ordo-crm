@@ -1,0 +1,268 @@
+{
+  "users": [
+    {
+      "id": "admin",
+      "name": "Сис.Админ",
+      "login": "admin",
+      "position": "Главный администратор",
+      "salary": 0,
+      "role": "admin",
+      "branches": [
+        "ayu-grand",
+        "besh-sary",
+        "green"
+      ],
+      "permissions": [
+        "sales",
+        "debtSale",
+        "deliveries",
+        "attendance",
+        "reports",
+        "bankCommissions",
+        "reportProfit",
+        "expenses",
+        "payroll",
+        "commercialDocuments",
+        "reconciliation",
+        "whatsappBroadcast",
+        "priceFormula",
+        "customsCalculator",
+        "audit",
+        "users",
+        "about"
+      ],
+      "active": true,
+      "passwordHash": "062aff88ce539ad5d1d9a282fffe9bb511dd27173367e21250359346ba55d3cd"
+    },
+    {
+      "id": "adil",
+      "name": "Адил",
+      "login": "adil",
+      "position": "Продавец",
+      "salary": 0,
+      "role": "seller",
+      "branches": [
+        "ayu-grand"
+      ],
+      "permissions": [
+        "sales",
+        "attendance",
+        "deliveries"
+      ],
+      "active": true,
+      "passwordHash": "c7da30ee4feca867b8749a897486501741d98ea0465eacaf1064cf0f787ef83d"
+    },
+    {
+      "id": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+      "name": "Кудайберди",
+      "login": "kudaiberdi",
+      "position": "Главный администратор",
+      "salary": 0,
+      "role": "admin",
+      "branches": [
+        "ayu",
+        "besh"
+      ],
+      "permissions": [
+        "sales",
+        "debtSale",
+        "deliveries",
+        "attendance",
+        "reports",
+        "bankCommissions",
+        "reportProfit",
+        "expenses",
+        "payroll",
+        "commercialDocuments",
+        "reconciliation",
+        "whatsappBroadcast",
+        "priceFormula",
+        "customsCalculator",
+        "audit",
+        "users",
+        "about"
+      ],
+      "active": true,
+      "passwordHash": ""
+    },
+    {
+      "id": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
+      "name": "Адил",
+      "login": "adil",
+      "position": "Менеджер",
+      "salary": 0,
+      "role": "manager",
+      "branches": [
+        "ayu",
+        "besh"
+      ],
+      "permissions": [
+        "sales",
+        "debtSale",
+        "deliveries",
+        "attendance",
+        "reports",
+        "bankCommissions",
+        "reportProfit",
+        "expenses",
+        "payroll",
+        "commercialDocuments"
+      ],
+      "active": true,
+      "passwordHash": ""
+    },
+    {
+      "id": "8e18ae57-76cc-4412-b32e-538368f46a78",
+      "name": "Сис.Админ",
+      "login": "emp-ayu-cbe9eb71",
+      "position": "Сотрудник МойСклад",
+      "salary": 0,
+      "role": "admin",
+      "branches": [
+        "ayu",
+        "besh"
+      ],
+      "permissions": [
+        "sales",
+        "debtSale",
+        "deliveries",
+        "attendance",
+        "reports",
+        "bankCommissions",
+        "reportProfit",
+        "expenses",
+        "payroll",
+        "commercialDocuments",
+        "reconciliation",
+        "whatsappBroadcast",
+        "priceFormula",
+        "customsCalculator",
+        "audit",
+        "users",
+        "about"
+      ],
+      "active": true,
+      "passwordHash": ""
+    },
+    {
+      "id": "7faae323-c24d-4e1c-bd48-e97c1ac352e6",
+      "name": "Сурма",
+      "login": "emp-ayu-20c01721",
+      "position": "Сотрудник МойСклад",
+      "salary": 0,
+      "role": "seller",
+      "branches": [
+        "ayu",
+        "besh"
+      ],
+      "permissions": [
+        "sales",
+        "debtSale",
+        "deliveries",
+        "reports",
+        "commercialDocuments",
+        "whatsappBroadcast"
+      ],
+      "active": true,
+      "passwordHash": ""
+    }
+  ],
+  "sessions": {
+    "5b190c14-74fd-43da-8c1d-255b5c242ac8": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
+    "d069d07a-d67f-4c65-8374-39d8609b1e5e": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
+    "f64e9618-a6f1-43e2-9ee9-f315b5bc1007": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "63ece183-882e-4807-b4b0-da58b57159ff": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "066dd11d-af16-4716-8d9a-93a3deb11094": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "65fc2e60-962f-4db0-854f-002cd54d7648": "8e18ae57-76cc-4412-b32e-538368f46a78"
+  },
+  "uiSettings": {},
+  "expenses": [],
+  "deliveries": [],
+  "attendanceStores": [],
+  "attendanceRecords": [
+    {
+      "id": "520e6b7a-1945-4467-9265-25f928e2d6a6",
+      "userId": "36c99788-e545-46bc-b6bb-b434c3e317d1",
+      "userName": "Барчынай",
+      "storeId": "besh-sary",
+      "storeName": "Беш-Сары",
+      "checkInTime": "2026-07-14T03:00:00.000Z",
+      "checkOutTime": "2026-07-14T12:00:00.000Z",
+      "checkInDistanceMeters": null,
+      "checkOutDistanceMeters": 0,
+      "totalWorkMinutes": 540,
+      "currentWorkMinutes": 540,
+      "lateMinutes": 0,
+      "status": "closed",
+      "source": "admin"
+    },
+    {
+      "id": "50c034d7-6f76-4187-8290-fc2ef3d8e46e",
+      "userId": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
+      "userName": "Адил",
+      "storeId": "ayu-grand",
+      "storeName": "Аю-Гранд",
+      "checkInTime": "2026-07-14T03:00:00.000Z",
+      "checkOutTime": "2026-07-14T12:00:00.000Z",
+      "checkInDistanceMeters": null,
+      "checkOutDistanceMeters": 0,
+      "totalWorkMinutes": 540,
+      "currentWorkMinutes": 540,
+      "lateMinutes": 0,
+      "status": "closed",
+      "source": "admin"
+    },
+    {
+      "id": "014caa1a-512f-4520-8218-9fb362209b01",
+      "userId": "admin",
+      "userName": "Сис.Админ",
+      "storeId": "ayu-grand",
+      "storeName": "Аю-Гранд",
+      "checkInTime": "2026-07-14T03:00:00.000Z",
+      "checkOutTime": "2026-07-14T12:00:00.000Z",
+      "checkInDistanceMeters": null,
+      "checkOutDistanceMeters": 0,
+      "totalWorkMinutes": 540,
+      "currentWorkMinutes": 540,
+      "lateMinutes": 0,
+      "status": "closed",
+      "source": "admin"
+    },
+    {
+      "id": "c8cdb733-2c90-456a-b345-ca311bef3432",
+      "userId": "7faae323-c24d-4e1c-bd48-e97c1ac352e6",
+      "userName": "Сурма",
+      "storeId": "ayu-grand",
+      "storeName": "Аю-Гранд",
+      "checkInTime": "2026-07-14T10:05:14.409Z",
+      "checkOutTime": "2026-07-14T12:00:00.000Z",
+      "checkInDistanceMeters": 0,
+      "checkOutDistanceMeters": 0,
+      "totalWorkMinutes": 115,
+      "currentWorkMinutes": 115,
+      "lateMinutes": 0,
+      "status": "closed",
+      "source": "geo"
+    }
+  ],
+  "attendanceSchedule": {
+    "workStartsAt": "09:00",
+    "workEndsAt": "18:00",
+    "branches": [
+      {
+        "key": "ayu-grand",
+        "label": "Аю-Гранд",
+        "workStartsAt": "09:00",
+        "workEndsAt": "18:00"
+      },
+      {
+        "key": "besh-sary",
+        "label": "Беш-Сары",
+        "workStartsAt": "09:00",
+        "workEndsAt": "19:00"
+      }
+    ]
+  },
+  "customsHistory": [],
+  "orders": []
+}

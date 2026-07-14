@@ -1,0 +1,607 @@
+.whatsapp {
+  display: grid;
+  grid-template-columns: 72px 390px minmax(0, 1fr);
+  height: calc(100vh - 68px);
+  min-height: 620px;
+  max-height: calc(100vh - 68px);
+  overflow: hidden;
+  border-radius: 28px;
+  background: #111b21;
+  color: #e9edef;
+  box-shadow: 0 28px 70px rgba(5, 10, 24, 0.22);
+}
+
+.rail {
+  display: grid;
+  grid-template-rows: repeat(5, 48px) 1fr repeat(2, 48px);
+  gap: 12px;
+  justify-items: center;
+  border-right: 1px solid #25323a;
+  background: #202c33;
+  padding: 18px 10px;
+  min-height: 0;
+}
+
+.rail button {
+  position: relative;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #aebac1;
+}
+
+.rail button:hover,
+.railActive {
+  background: #2a3942 !important;
+  color: #e9edef !important;
+}
+
+.rail b {
+  position: absolute;
+  top: -3px;
+  right: -2px;
+  min-width: 21px;
+  height: 21px;
+  border-radius: 99px;
+  background: #00a884;
+  color: #07130f;
+  font-size: 12px;
+  line-height: 21px;
+}
+
+.rail i {
+  width: 48px;
+  height: 1px;
+  background: #314046;
+}
+
+.rail span {
+  min-height: 1px;
+}
+
+.chatList {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  border-right: 1px solid #25323a;
+  background: #111b21;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chatList header,
+.chatHeader,
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.chatList header {
+  padding: 18px 18px 14px;
+}
+
+.chatList h1,
+.chatList p,
+.chatHeader h2,
+.chatHeader p,
+.settingsHeader h2,
+.settingsHeader p,
+.settingsBlock h3 {
+  margin: 0;
+}
+
+.chatList h1,
+.chatHeader h2,
+.settingsHeader h2 {
+  color: #f0f2f5;
+  font-size: 22px;
+}
+
+.chatList p,
+.chatHeader p,
+.settingsHeader p {
+  color: #8696a0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.listActions,
+.connectionActions {
+  display: flex;
+  gap: 10px;
+}
+
+.chatList header button,
+.headerAction,
+.aiAction,
+.connection button,
+.launchButton,
+.fillButton,
+.manual button,
+.composer form button,
+.settingsHeader button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: #2a3942;
+  color: #d1d7db;
+  font-weight: 850;
+  padding: 0 13px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 14px 10px;
+  border: 1px solid #2f3c44;
+  border-radius: 12px;
+  background: #202c33;
+  color: #8696a0;
+  padding: 0 12px;
+}
+
+.search input,
+.typeFilter,
+.manual input,
+.composer textarea,
+.settingsBlock input,
+.settingsBlock textarea,
+.connection input {
+  min-height: 42px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #e9edef;
+  font: inherit;
+  font-weight: 750;
+  outline: none;
+}
+
+.search input::placeholder,
+.manual input::placeholder,
+.composer textarea::placeholder,
+.settingsBlock textarea::placeholder,
+.settingsBlock input::placeholder,
+.connection input::placeholder {
+  color: #8696a0;
+}
+
+.typeFilter {
+  width: calc(100% - 28px);
+  margin: 0 14px 10px;
+  border-radius: 12px;
+  background: #202c33;
+  color: #d1d7db;
+  padding: 0 12px;
+}
+
+.contacts {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 8px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: #3b4a54 transparent;
+}
+
+.contacts button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  width: 100%;
+  min-height: 76px;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #d1d7db;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.contacts button:hover,
+.contactActive {
+  background: #202c33 !important;
+}
+
+.avatar {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.teal { background: linear-gradient(135deg, #00a884, #06cf9c); }
+.violet { background: linear-gradient(135deg, #6d5dfc, #b238ff); }
+.amber { background: linear-gradient(135deg, #6b4b1f, #c48a30); }
+.blue { background: linear-gradient(135deg, #0b5cad, #38bdf8); }
+.rose { background: linear-gradient(135deg, #a12551, #fb7185); }
+.green { background: linear-gradient(135deg, #136f63, #22c55e); }
+
+.contactBody {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.contactBody > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.contactBody b {
+  overflow: hidden;
+  color: #f0f2f5;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contactBody time {
+  color: #8696a0;
+  font-size: 13px;
+}
+
+.contactBody small {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: #8696a0;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contacts em {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 99px;
+  background: #00a884;
+  color: #07130f;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.emptyList {
+  margin: 18px;
+  color: #8696a0;
+}
+
+.chat {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 0;
+  background: #0b141a;
+}
+
+.chatHeader {
+  min-height: 72px;
+  border-bottom: 1px solid #25323a;
+  background: #202c33;
+  padding: 10px 18px;
+}
+
+.backButton {
+  display: none;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: #2a3942;
+  color: #d1d7db;
+}
+
+.aiAction {
+  background: #243941;
+  color: #d8fef6;
+}
+
+.aiAction span {
+  white-space: nowrap;
+}
+
+.chatMeta {
+  min-width: 0;
+  margin-right: auto;
+}
+
+.chatCanvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 25% 20%, rgba(0, 168, 132, 0.08), transparent 28%),
+    radial-gradient(circle at 78% 74%, rgba(80, 80, 80, 0.16), transparent 26%),
+    #0b141a;
+  padding: 26px;
+}
+
+.blank {
+  align-self: center;
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  color: #737373;
+  text-align: center;
+}
+
+.blank h2 {
+  margin: 0;
+  color: #8f8f8f;
+  font-size: 28px;
+}
+
+.blank p {
+  margin: 0;
+  color: #737373;
+}
+
+.bubbleIn,
+.bubbleOut {
+  display: grid;
+  gap: 6px;
+  max-width: min(560px, 80%);
+  border-radius: 16px;
+  color: #e9edef;
+  font-weight: 750;
+  padding: 12px 14px;
+}
+
+.bubbleIn p,
+.bubbleOut p,
+.bubbleIn time,
+.bubbleOut time {
+  margin: 0;
+}
+
+.bubbleIn time,
+.bubbleOut time {
+  justify-self: end;
+  color: rgba(233, 237, 239, 0.62);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bubbleIn {
+  align-self: flex-start;
+  background: #202c33;
+}
+
+.bubbleOut {
+  align-self: flex-end;
+  background: #005c4b;
+}
+
+.composer {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #25323a;
+  background: #202c33;
+  padding: 12px 14px 14px;
+}
+
+.manual {
+  display: grid;
+  grid-template-columns: 160px 180px auto;
+  gap: 10px;
+}
+
+.draftHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 38px;
+  border-radius: 12px;
+  background: rgba(0, 168, 132, 0.12);
+  color: #9ff2df;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.manual input,
+.composer textarea,
+.settingsBlock input,
+.settingsBlock textarea,
+.connection input {
+  border-radius: 12px;
+  background: #111b21;
+  padding: 0 14px;
+}
+
+.composer form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.composer textarea,
+.settingsBlock textarea {
+  min-height: 54px;
+  resize: vertical;
+  padding-top: 13px;
+}
+
+.composer form button,
+.launchButton {
+  min-width: 52px;
+  background: #00a884;
+  color: #051b14;
+}
+
+.settingsBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(6, 13, 18, 0.56);
+  backdrop-filter: blur(10px);
+}
+
+.settingsPanel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: min(430px, 100%);
+  height: 100%;
+  border-left: 1px solid #25323a;
+  background: #111b21;
+  color: #e9edef;
+  box-shadow: -24px 0 60px rgba(0, 0, 0, 0.22);
+}
+
+.settingsHeader {
+  padding: 18px;
+  border-bottom: 1px solid #25323a;
+  background: #202c33;
+}
+
+.settingsContent {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.settingsBlock {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #25323a;
+  border-radius: 18px;
+  background: #151f26;
+}
+
+.settingsBlock label {
+  display: grid;
+  gap: 8px;
+}
+
+.settingsBlock span,
+.settingsBlock h3 {
+  color: #b6c2c9;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.fillButton {
+  background: #233138;
+}
+
+.check {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #00a884;
+}
+
+.connection {
+  display: grid;
+  gap: 10px;
+}
+
+@media (max-width: 1080px) {
+  .whatsapp {
+    grid-template-columns: 72px 340px minmax(0, 1fr);
+  }
+
+  .manual {
+    grid-template-columns: 1fr 1fr auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .whatsapp {
+    grid-template-columns: 62px minmax(0, 1fr);
+    height: calc(100vh - 40px);
+    max-height: calc(100vh - 40px);
+  }
+
+  .rail {
+    grid-template-rows: repeat(5, 44px) 1fr repeat(2, 44px);
+    gap: 8px;
+    padding: 12px 8px;
+  }
+
+  .rail button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .chatList {
+    border-right: 0;
+  }
+
+  .chatListMobileHidden {
+    display: none;
+  }
+
+  .chat {
+    display: none;
+    grid-column: 2;
+  }
+
+  .chatMobileVisible {
+    display: grid;
+  }
+
+  .backButton {
+    display: grid;
+  }
+
+  .manual {
+    grid-template-columns: 1fr;
+  }
+
+  .composer form {
+    grid-template-columns: 1fr;
+  }
+
+  .composer form button {
+    width: 100%;
+  }
+
+  .aiAction span {
+    display: none;
+  }
+
+  .settingsPanel {
+    width: 100%;
+  }
+}

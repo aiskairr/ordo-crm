@@ -1,0 +1,704 @@
+.page {
+  display: grid;
+  gap: 18px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header p,
+.header h1,
+.header span {
+  margin: 0;
+}
+
+.header p {
+  color: var(--primary);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.header h1 {
+  margin-top: 6px;
+  font-size: clamp(34px, 5vw, 58px);
+  letter-spacing: 0;
+}
+
+.header span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 17px;
+}
+
+.header button,
+.filters > button,
+.documentCard footer a,
+.secondaryButton {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--primary);
+  color: #FFFFFF;
+  font-weight: 900;
+  padding: 0 16px;
+}
+
+.secondaryButton {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tabs,
+.filters,
+.totals,
+.accessNotice,
+.clientProducts,
+.documents,
+.chartPanel {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 7%, transparent), transparent 46%),
+    var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.tabs button {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel-muted);
+  color: var(--text);
+  padding: 0 16px;
+}
+
+.tabs span {
+  font-weight: 900;
+  text-align: left;
+}
+
+.tabs strong {
+  display: grid;
+  min-width: 34px;
+  min-height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.tabs .activeTab {
+  border-color: color-mix(in srgb, var(--primary) 60%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 24%, transparent), color-mix(in srgb, var(--cyan) 10%, transparent)),
+    var(--panel-muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+  padding: 18px;
+}
+
+.filters label {
+  display: grid;
+  gap: 8px;
+}
+
+.filters span,
+.totals span,
+.documentCard span,
+.documentsHead p {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.filters input,
+.filters select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 14px;
+}
+
+.filters .period,
+.filters .searchField {
+  grid-column: span 2;
+}
+
+.filters > .quickFilter {
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.filters > .clearFilter {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.reportPanel {
+  print-color-adjust: exact;
+}
+
+.period {
+  display: grid;
+  gap: 8px;
+}
+
+.period > div,
+.period section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.period button {
+  display: grid;
+  min-width: 34px;
+  min-height: 34px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 900;
+}
+
+.period .activePeriod {
+  border-color: var(--primary);
+  background: var(--crm-accent-soft);
+}
+
+.period section {
+  min-height: 46px;
+  justify-content: space-between;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 6px;
+}
+
+.period section strong {
+  text-align: center;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.totals article {
+  display: grid;
+  gap: 8px;
+  min-height: 108px;
+  align-content: center;
+  border-right: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+    var(--panel-strong);
+  padding: 18px;
+}
+
+.totals article:last-child {
+  border-right: 0;
+}
+
+.totals strong {
+  font-size: clamp(20px, 2vw, 30px);
+}
+
+.accessNotice {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+}
+
+.accessNotice strong {
+  color: var(--primary);
+  font-size: 15px;
+}
+
+.accessNotice span {
+  color: var(--muted);
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.chartPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.chartPanel h2,
+.chartPanel p {
+  margin: 0;
+}
+
+.chartPanel p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.chart {
+  min-height: 280px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent),
+    var(--surface);
+  padding: 12px;
+}
+
+.documents {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.clientProducts {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.productFilter {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.productFilter label {
+  display: grid;
+  gap: 8px;
+}
+
+.productFilter span {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.productFilter input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 14px;
+}
+
+.productFilter button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 900;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.documentsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.documentsHead h2,
+.documentsHead p {
+  margin: 0;
+}
+
+.documentsHead p {
+  margin-top: 4px;
+}
+
+.documentList {
+  display: grid;
+  gap: 16px;
+}
+
+.documentCard {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--border-strong);
+  border-top: 4px solid var(--primary);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(79, 140, 255, 0.08), transparent 48%),
+    var(--panel-muted);
+  padding: 18px;
+  box-shadow: var(--shadow-soft);
+}
+
+.documentCard header {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.documentCard header div,
+.meta,
+.products {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.documentCard header div {
+  display: grid;
+  gap: 6px;
+  min-height: 78px;
+  align-content: center;
+  padding: 12px;
+}
+
+.documentCard strong {
+  overflow-wrap: anywhere;
+}
+
+.documentCard small {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 14px;
+  padding: 12px;
+}
+
+.products {
+  overflow: auto;
+}
+
+.products table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.products th,
+.products td {
+  border-bottom: 1px solid var(--border);
+  padding: 12px;
+  text-align: left;
+}
+
+.products th {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.products td:nth-child(3),
+.products td:nth-child(4),
+.products td:nth-child(5) {
+  text-align: right;
+}
+
+.documentCard footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.documentActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tableAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 800;
+  padding: 8px 10px;
+}
+
+.mutedCell {
+  color: var(--muted);
+}
+
+.printReport {
+  display: none;
+}
+
+.printSheet,
+.waybillSheet {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 12mm;
+  margin: 0 auto;
+  background: white;
+  color: black;
+}
+
+.receiptSheet {
+  width: 80mm;
+  padding: 4mm;
+  margin: 0 auto;
+  background: white;
+  color: black;
+  font-size: 11px;
+}
+
+.printPaymentSummary h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.printPaymentList {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.printPaymentList p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+}
+
+.receiptCenter {
+  text-align: center;
+  font-weight: 700;
+}
+
+.receiptLine {
+  border-top: 1px dashed #000;
+  margin: 6px 0;
+}
+
+.receiptRow,
+.receiptItemCalc,
+.receiptTotal {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.receiptItems {
+  display: grid;
+  gap: 8px;
+}
+
+.receiptItemName {
+  font-weight: 600;
+}
+
+.receiptTotal {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.receiptComment {
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+.receiptCount,
+.receiptThanks,
+.receiptCut {
+  text-align: center;
+}
+
+.receiptThanks {
+  margin-top: 6px;
+  font-weight: 700;
+}
+
+.receiptCut {
+  margin-top: 10px;
+  border-top: 1px dashed #000;
+}
+
+.waybillSummary {
+  margin-top: 10px;
+}
+
+.waybillSignatures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40mm;
+  margin-top: 24mm;
+}
+
+.waybillSignatures div {
+  display: grid;
+  gap: 8px;
+}
+
+.waybillSignatures span {
+  color: #000;
+}
+
+.reportDocumentRow td {
+  font-weight: 700;
+  background: #f2f4f8;
+}
+
+.reportProductRow td {
+  background: white;
+}
+
+.printHeadMain th,
+.printHeadSub th {
+  background: #edf2fb;
+}
+
+.empty {
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  color: var(--muted);
+  padding: 24px;
+  text-align: center;
+}
+
+@media (max-width: 1200px) {
+  .filters,
+  .documentCard header,
+  .meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .totals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tabs,
+  .filters,
+  .productFilter,
+  .documentCard header,
+  .meta,
+  .totals {
+    grid-template-columns: 1fr;
+  }
+
+  .period > div,
+  .period section {
+    flex-wrap: wrap;
+  }
+
+  .documentCard footer,
+  .documentActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media print {
+  .page * {
+    visibility: hidden;
+  }
+
+  .printReport,
+  .printReport * {
+    visibility: visible;
+  }
+
+  .printReport {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: white;
+    color: black;
+  }
+
+  .reportPanel {
+    display: none !important;
+  }
+
+  .printSheet table,
+  .waybillSheet table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .printSheet th,
+  .printSheet td,
+  .waybillSheet th,
+  .waybillSheet td {
+    border: 1px solid #000;
+    padding: 4px;
+    font-size: 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .waybillSheet h1,
+  .printSheet h1 {
+    margin: 0 0 8px;
+    font-size: 20px;
+  }
+
+  .waybillSheet p,
+  .printSheet p {
+    margin: 0 0 8px;
+  }
+
+  .receiptPrintReport {
+    width: 80mm;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
+}

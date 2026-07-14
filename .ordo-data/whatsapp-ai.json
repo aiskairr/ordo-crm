@@ -1,0 +1,640 @@
+{
+  "conversations": [
+    {
+      "chatId": "996600610900@c.us",
+      "phone": "996600610900",
+      "customerName": "амин",
+      "customerTypeLabel": "Номер",
+      "lastMessageAt": "2026-07-13T21:40:38.756Z",
+      "unreadCount": 0,
+      "draft": "",
+      "draftUpdatedAt": "2026-07-13T21:40:38.756Z",
+      "messages": [
+        {
+          "id": "a6ae9354-4c9a-4b79-b678-7ccd79e669e1",
+          "direction": "outgoing",
+          "text": "фыв",
+          "createdAt": "2026-07-13T21:32:51.370Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "690c2c44-d876-49cb-bfae-b346e7818999",
+          "direction": "outgoing",
+          "text": "фв",
+          "createdAt": "2026-07-13T21:33:07.786Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "6dc13bab-d19c-4b03-9fca-cda8a24bb388",
+          "direction": "outgoing",
+          "text": "нн",
+          "createdAt": "2026-07-13T21:37:39.459Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "4fde1c03-1907-4b32-a313-4f8a92c15579",
+          "direction": "outgoing",
+          "text": "мама",
+          "createdAt": "2026-07-13T21:40:38.756Z",
+          "status": "sent",
+          "author": "manager"
+        }
+      ]
+    },
+    {
+      "chatId": "277824959189008@lid",
+      "phone": "277824959189008",
+      "customerName": "277824959189008",
+      "customerTypeLabel": "",
+      "lastMessageAt": "2026-07-14T12:01:43.449Z",
+      "unreadCount": 0,
+      "draft": "",
+      "draftUpdatedAt": "2026-07-14T12:01:43.449Z",
+      "messages": [
+        {
+          "id": "cf935ca8-444e-4540-892d-35a81a343d7a",
+          "direction": "outgoing",
+          "text": "rfr ns",
+          "createdAt": "2026-07-13T21:54:43.180Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "41905da1-ba9a-4c41-88bf-9c10b10501ed",
+          "direction": "outgoing",
+          "text": "ии мне ответит?",
+          "createdAt": "2026-07-13T22:06:33.770Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "fb324bcf-afc9-4edf-9480-d4de56038647",
+          "direction": "outgoing",
+          "text": "ии мне ответит?",
+          "createdAt": "2026-07-13T22:07:06.785Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "dc978b55-f160-4df8-b3c4-53d6af65111e",
+          "direction": "outgoing",
+          "text": "окей",
+          "createdAt": "2026-07-13T22:11:56.325Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "30e34dd6-6258-43dc-84a8-fbc7d4313731",
+          "direction": "outgoing",
+          "text": "?",
+          "createdAt": "2026-07-14T11:07:43.456Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "manual-test-1",
+          "direction": "incoming",
+          "text": "Есть холодильник LG?",
+          "createdAt": "2026-07-14T11:07:43.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "false_277824959189008@lid_3AC81A6295463C76E23B",
+          "direction": "incoming",
+          "text": "Привет",
+          "createdAt": "2026-07-14T11:37:53.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "false_277824959189008@lid_3A5DC6358CC0BCBF22C2",
+          "direction": "incoming",
+          "text": "Не понял",
+          "createdAt": "2026-07-14T11:38:01.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "false_277824959189008@lid_3A43DFA50DE20DC001BB",
+          "direction": "incoming",
+          "text": "Нет",
+          "createdAt": "2026-07-14T11:38:26.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "false_277824959189008@lid_3A6597654197843FF998",
+          "direction": "incoming",
+          "text": "Ты мне ответишь?",
+          "createdAt": "2026-07-14T11:38:31.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "false_277824959189008@lid_3AA0A76B6AC5D194330B",
+          "direction": "incoming",
+          "text": "Привет",
+          "createdAt": "2026-07-14T11:42:52.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "b623b475-7ee1-4340-a269-0c5fbefc1c98",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Приношу извинения за ожидание. К сожалению, холодильников LG сейчас нет в наличии. Подскажите, рассматриваете ли вы другие бренды или вас интересует техника с определенными характеристиками?",
+          "createdAt": "2026-07-14T11:42:53.711Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3AD40D2966385D9D98A3",
+          "direction": "incoming",
+          "text": "Да",
+          "createdAt": "2026-07-14T11:43:00.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "637f2c41-70ab-47e6-ab7d-58ff6740fa7e",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Подскажите, пожалуйста, какой объем холодильника вам нужен и есть ли предпочтения по цвету или габаритам?",
+          "createdAt": "2026-07-14T11:43:01.598Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A53CBC59BB5F4050178",
+          "direction": "incoming",
+          "text": "Мне нужна бритва",
+          "createdAt": "2026-07-14T11:43:15.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "1878f2a8-9ae7-4929-97af-3bfc2b1ef857",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Подскажите, пожалуйста, вы ищете роторную или сеточную модель? Есть ли предпочтения по бренду или дополнительным функциям (например, для влажного бритья)?",
+          "createdAt": "2026-07-14T11:43:16.313Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A2F61E031936BA48208",
+          "direction": "incoming",
+          "text": "Я не понимаю что мне взять",
+          "createdAt": "2026-07-14T11:43:33.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "969f3336-13f7-4131-8064-32c6264ee2cf",
+          "direction": "outgoing",
+          "text": "Ничего страшного! Чтобы я подобрал для вас подходящий вариант, подскажите, пожалуйста: вы планируете использовать бритву для ежедневного бритья или для поддержания формы бороды? И какой бюджет на покупку вы рассматриваете?",
+          "createdAt": "2026-07-14T11:43:34.747Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3AEC98011782637EF00E",
+          "direction": "incoming",
+          "text": "Какие midea есть?",
+          "createdAt": "2026-07-14T11:53:56.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "df98cc89-db5d-4582-8a98-7f2bed29362d",
+          "direction": "outgoing",
+          "text": "К сожалению, товаров бренда Midea сейчас нет в наличии. Подсказать что-то другое из нашего ассортимента?",
+          "createdAt": "2026-07-14T11:53:57.300Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A3AB8E4540E0BEEA992",
+          "direction": "incoming",
+          "text": "Посмотри снова",
+          "createdAt": "2026-07-14T11:56:09.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "82839e5a-e09c-4c42-bfaf-eb7d6714aa54",
+          "direction": "outgoing",
+          "text": "К сожалению, товаров бренда Midea по-прежнему нет в наличии. Подсказать альтернативу от других производителей?",
+          "createdAt": "2026-07-14T11:56:10.662Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3AC86DE85440CCE44F8C",
+          "direction": "incoming",
+          "text": "А что у вас ест штука которая делает вещи чистыми это что",
+          "createdAt": "2026-07-14T11:57:42.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "a7441414-e479-4d0f-9fd6-efac3b51726f",
+          "direction": "outgoing",
+          "text": "Вам нужна стиральная машина? Уточните, пожалуйста, какой объем загрузки вас интересует?",
+          "createdAt": "2026-07-14T11:57:44.265Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A9FD80E29BD7FF07AA5",
+          "direction": "incoming",
+          "text": "А какие товары в общем есть у вас щас",
+          "createdAt": "2026-07-14T11:58:12.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "e73019e8-da73-4698-8ef0-3515254ef8fa",
+          "direction": "outgoing",
+          "text": "У нас в наличии есть стиральные машины брендов LG, Samsung и Indesit. Какой объем загрузки вам нужен?",
+          "createdAt": "2026-07-14T11:58:14.020Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A47B725B89B561A7B46",
+          "direction": "incoming",
+          "text": "Нет вообще все",
+          "createdAt": "2026-07-14T11:58:27.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "336628bb-fba5-46f3-956e-612c868f50b5",
+          "direction": "outgoing",
+          "text": "В наличии только стиральные машины LG, Samsung и Indesit. Какой объем загрузки вам нужен?",
+          "createdAt": "2026-07-14T11:58:28.550Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A0213E30D2EDF93F29C",
+          "direction": "incoming",
+          "text": "Не толко что лаки",
+          "createdAt": "2026-07-14T11:58:34.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "ffdde74d-dc7a-4076-ba24-aeb6a62d0a24",
+          "direction": "outgoing",
+          "text": "Уточните, пожалуйста, какую именно технику вы ищете?",
+          "createdAt": "2026-07-14T11:58:35.676Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3AFCDDE5C98AC169F36D",
+          "direction": "incoming",
+          "text": "Не только стиралки",
+          "createdAt": "2026-07-14T11:58:40.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "0e203a09-d247-4aa3-9afe-02836bcb0512",
+          "direction": "outgoing",
+          "text": "К сожалению, у нас в наличии только стиральные машины. Какая техника вас интересует помимо них?",
+          "createdAt": "2026-07-14T11:58:41.417Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A41872675C12E946018",
+          "direction": "incoming",
+          "text": "Реально только стералки?",
+          "createdAt": "2026-07-14T11:59:37.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "c75fc4ad-fbf6-4954-b1dc-ae25490a68af",
+          "direction": "outgoing",
+          "text": "Да, в наличии только стиральные машины. Какие параметры важны при выборе?",
+          "createdAt": "2026-07-14T11:59:39.174Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3AA77358C29BD3E0D3AA",
+          "direction": "incoming",
+          "text": "А есть телефоны?",
+          "createdAt": "2026-07-14T11:59:49.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "22f12428-44af-4e89-b5ca-d822fbcf6bfb",
+          "direction": "outgoing",
+          "text": "К сожалению, телефонов нет, только стиральные машины. Какие параметры стиральной машины вас интересуют?",
+          "createdAt": "2026-07-14T11:59:51.038Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A8EB8D22CE5256CD9AA",
+          "direction": "incoming",
+          "text": "Еще раз поверь товары",
+          "createdAt": "2026-07-14T12:00:28.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "d9db36d9-16b6-44ba-8f04-aa2733fae0fc",
+          "direction": "outgoing",
+          "text": "Проверил еще раз: в наличии только стиральные машины. Какие параметры (габариты, загрузка) вам важны?",
+          "createdAt": "2026-07-14T12:00:29.977Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A2143392426C49DE369",
+          "direction": "incoming",
+          "text": "Перезагрузи",
+          "createdAt": "2026-07-14T12:01:24.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "4a94d1dc-5ed2-4090-bc3f-6a073995e64c",
+          "direction": "outgoing",
+          "text": "Система обновлена, в наличии по-прежнему только стиральные машины. Какие параметры (габариты, загрузка) вам важны?",
+          "createdAt": "2026-07-14T12:01:26.066Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3AAB8A31B8D25A14DA0F",
+          "direction": "incoming",
+          "text": "Или нахуй",
+          "createdAt": "2026-07-14T12:01:34.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "36ddc4ab-5dc6-44f4-8c35-c30d93e43d43",
+          "direction": "outgoing",
+          "text": "Понял вас. Всего доброго.",
+          "createdAt": "2026-07-14T12:01:35.934Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3AE2245EE7005C033BA2",
+          "direction": "incoming",
+          "text": "А ладно прости",
+          "createdAt": "2026-07-14T12:01:42.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "19979dfb-92c4-45bc-a3da-192511a8b6f9",
+          "direction": "outgoing",
+          "text": "Ничего страшного. Какие параметры стиральной машины вам подобрать?",
+          "createdAt": "2026-07-14T12:01:43.449Z",
+          "status": "sent",
+          "author": "ai"
+        }
+      ]
+    },
+    {
+      "chatId": "113748115226859@lid",
+      "phone": "113748115226859",
+      "customerName": "113748115226859",
+      "customerTypeLabel": "",
+      "lastMessageAt": "2026-07-14T11:56:38.614Z",
+      "unreadCount": 0,
+      "draft": "",
+      "draftUpdatedAt": "2026-07-14T11:56:38.614Z",
+      "messages": [
+        {
+          "id": "976c8086-1a13-45a5-bb51-77be880bea2d",
+          "direction": "outgoing",
+          "text": "yfyfyf",
+          "createdAt": "2026-07-14T09:57:03.793Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "false_113748115226859@lid_2A7CC78095C405010561",
+          "direction": "incoming",
+          "text": "Я хочу купил стиралку",
+          "createdAt": "2026-07-14T11:44:53.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "60e6b012-5a95-4f5e-a2e2-871a086abc0c",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Подскажите, пожалуйста, какой бюджет вы рассматриваете и есть ли предпочтения по габаритам или функционалу стиральной машины?",
+          "createdAt": "2026-07-14T11:44:55.051Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2AA1EDA881D3DD282018",
+          "direction": "incoming",
+          "text": "Мен сени тушугбодум",
+          "createdAt": "2026-07-14T11:45:44.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "dcecb4b1-6bc1-4b18-9a34-69e95df14800",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Извините, я ответил на другом языке. Подскажите, пожалуйста, какой бюджет вы рассматриваете и есть ли предпочтения по размерам стиральной машины? Я помогу подобрать подходящий вариант.",
+          "createdAt": "2026-07-14T11:45:46.060Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2AB16BF3B4F15CEED1C9",
+          "direction": "incoming",
+          "text": "Пиши на кыргзсклм языке",
+          "createdAt": "2026-07-14T11:46:03.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "558425b1-a9ea-4b9a-9fd5-453c87093815",
+          "direction": "outgoing",
+          "text": "Кечиресиз, мен азырынча кыргыз тилинде сүйлөй албайм. Сураныч, орус тилинде жазып тура аласызбы? Сизге стиральный машина тандоодо жардам берүү үчүн бюджетти жана керектүү өлчөмдөрдү тактап бере аласызбы?",
+          "createdAt": "2026-07-14T11:46:05.058Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2A90A3633B88229FE84B",
+          "direction": "incoming",
+          "text": "Мага глубинамы 40 см керек",
+          "createdAt": "2026-07-14T11:47:04.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "de2aa5bf-49c4-4e6d-847b-652bd6feac98",
+          "direction": "outgoing",
+          "text": "К сожалению, в наличии нет стиральных машин с глубиной 40 см. Уточните, пожалуйста, рассматриваете ли вы другие размеры?",
+          "createdAt": "2026-07-14T11:47:05.670Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2AC93B235DD3ADB706CD",
+          "direction": "incoming",
+          "text": "А ты можешь тогда подбрать мне стиралку до 40тыс",
+          "createdAt": "2026-07-14T11:47:51.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "8e8d076f-21f3-4788-ac75-b8ffff31e9a2",
+          "direction": "outgoing",
+          "text": "К сожалению, в наличии нет стиральных машин до 40 000 сомов. Рассматриваете ли вы другие ценовые категории?",
+          "createdAt": "2026-07-14T11:47:52.531Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2A36A3B2DCF2702E65B5",
+          "direction": "incoming",
+          "text": "Хочу лж",
+          "createdAt": "2026-07-14T11:48:47.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "4d11f2ea-ddbd-46c6-838e-8f645db8ec3e",
+          "direction": "outgoing",
+          "text": "К сожалению, стиральных машин LG сейчас нет в наличии. Рассматриваете другие бренды?",
+          "createdAt": "2026-07-14T11:48:48.746Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2AEAB7D593BE82F74F3F",
+          "direction": "incoming",
+          "text": "Midea?",
+          "createdAt": "2026-07-14T11:49:12.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "4b51371b-d33c-4e0b-8aba-2bdc63fb6754",
+          "direction": "outgoing",
+          "text": "Да, в наличии есть стиральная машина Midea MFN60-S1003S (6 кг) за 24 000 сом. Оформим заказ?",
+          "createdAt": "2026-07-14T11:49:13.864Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2A90E327C447DAC91432",
+          "direction": "incoming",
+          "text": "А есть фотка",
+          "createdAt": "2026-07-14T11:49:31.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "52a83dfa-b68e-4d83-bfe8-554d3ce3c34e",
+          "direction": "outgoing",
+          "text": "Конечно, вот фото стиральной машины Midea MFN60-S1003S. Оформляем заказ?",
+          "createdAt": "2026-07-14T11:49:32.778Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2AEFA4E719C974C3A006",
+          "direction": "incoming",
+          "text": "У вас только одна мидея?",
+          "createdAt": "2026-07-14T11:49:57.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "6aea6c22-f444-4bdd-bd6a-cdf3d0b09aac",
+          "direction": "outgoing",
+          "text": "Да, на данный момент в наличии только эта модель. Вас интересуют другие бренды или характеристики?",
+          "createdAt": "2026-07-14T11:49:59.201Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2AFCF39FF274E7C8FFDB",
+          "direction": "incoming",
+          "text": "Пока мне бренды",
+          "createdAt": "2026-07-14T11:50:12.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "4874ba70-0649-4bd6-9c3a-88ef95bd378d",
+          "direction": "outgoing",
+          "text": "Какие характеристики стиральной машины для вас важны?",
+          "createdAt": "2026-07-14T11:50:13.846Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2A6DFF93D91F14410C79",
+          "direction": "incoming",
+          "text": "Загрузка",
+          "createdAt": "2026-07-14T11:50:22.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "b45401f2-13ab-4a1e-8cbb-4ac376fbd6ee",
+          "direction": "outgoing",
+          "text": "Какая максимальная загрузка в кг вам нужна?",
+          "createdAt": "2026-07-14T11:50:23.454Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2AB1D0354B5A83D28BCD",
+          "direction": "incoming",
+          "text": "Например 8кг",
+          "createdAt": "2026-07-14T11:56:22.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "fd7da895-17fc-406e-ae7b-c22acc66074b",
+          "direction": "outgoing",
+          "text": "К сожалению, стиральных машин с загрузкой 8 кг сейчас нет в наличии. Рассматриваете другие варианты загрузки?",
+          "createdAt": "2026-07-14T11:56:23.690Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2A30563BA3B860BB96CF",
+          "direction": "incoming",
+          "text": "6кг",
+          "createdAt": "2026-07-14T11:56:37.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "6d75232a-4c20-411d-af48-3dab7dfc965b",
+          "direction": "outgoing",
+          "text": "В наличии есть следующие модели на 6 кг:\n\n1. MIDEA MFN60-S1003S — 24 000 сом\n2. BLESK BFN60-2203S — 33 000 сом\n3. BEKO WSPE 6H 616W — 43 000 сом",
+          "createdAt": "2026-07-14T11:56:38.614Z",
+          "status": "sent",
+          "author": "ai"
+        }
+      ]
+    }
+  ]
+}

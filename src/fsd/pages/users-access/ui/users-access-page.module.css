@@ -1,0 +1,341 @@
+.page {
+  display: grid;
+  gap: 20px;
+}
+
+.hero,
+.toolbar,
+.card,
+.notice {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-radius: 28px;
+  padding: 28px;
+}
+
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.hero h1,
+.toolbar h2,
+.card h2,
+.sectionHeader h3 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.hero p,
+.toolbar p,
+.sectionHeader p,
+.hint,
+.identityText p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.notice {
+  border-radius: 18px;
+  padding: 14px 18px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.refreshButton,
+.primaryButton,
+.secondaryButton,
+.dangerButton,
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  border-radius: 14px;
+  padding: 0 16px;
+  font-weight: 800;
+}
+
+.refreshButton,
+.secondaryButton,
+.iconButton {
+  border: 1px solid var(--border);
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.primaryButton {
+  border: 0;
+  background: var(--primary);
+  color: white;
+}
+
+.dangerButton {
+  border: 1px solid rgba(255, 92, 92, 0.24);
+  background: rgba(255, 92, 92, 0.08);
+  color: #ff6f6f;
+}
+
+.toolbar {
+  display: grid;
+  gap: 16px;
+  border-radius: 24px;
+  padding: 20px;
+}
+
+.toolbarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 12px;
+}
+
+.filters input,
+.filters select,
+.field input,
+.field select,
+.passwordRow input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-muted);
+  padding: 0 14px;
+  color: var(--text);
+}
+
+.cards {
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  display: grid;
+  gap: 18px;
+  border-radius: 28px;
+  padding: 22px;
+}
+
+.cardHeader,
+.cardFooter,
+.passwordRow,
+.footerActions,
+.identity,
+.activeToggle,
+.salaryHint {
+  display: flex;
+  align-items: center;
+}
+
+.cardHeader,
+.cardFooter {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.identity {
+  gap: 14px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(56, 114, 255, 0.16);
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.identityText {
+  display: grid;
+  gap: 4px;
+}
+
+.activeToggle {
+  gap: 10px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.activeToggle input {
+  width: auto;
+}
+
+.noticeInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  border: 1px solid rgba(255, 196, 0, 0.24);
+  border-radius: 14px;
+  background: rgba(255, 196, 0, 0.08);
+  padding: 10px 12px;
+  color: #c8a647;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.formGrid,
+.sectionGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.formGrid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sectionGrid {
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.sectionCard,
+.passwordPanel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--panel-muted);
+  padding: 16px;
+}
+
+.sectionHeader {
+  display: grid;
+  gap: 6px;
+}
+
+.chips,
+.permissionsGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.chip,
+.permissionItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.permissionsGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.disabled {
+  opacity: 0.55;
+}
+
+.passwordPanel {
+  background: transparent;
+}
+
+.passwordRow {
+  gap: 10px;
+}
+
+.iconButton {
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
+}
+
+.footerActions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.salaryHint {
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1220px) {
+  .formGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .hero,
+  .cardHeader,
+  .cardFooter,
+  .toolbarHeader,
+  .passwordRow {
+    display: grid;
+  }
+
+  .filters,
+  .sectionGrid,
+  .permissionsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero,
+  .toolbar,
+  .card {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}

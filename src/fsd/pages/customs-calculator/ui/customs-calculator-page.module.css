@@ -1,0 +1,406 @@
+.page {
+  display: grid;
+  gap: 18px;
+}
+
+.header,
+.toolbar,
+.history,
+.searchResults,
+.party,
+.tableSection,
+.summary article,
+.rowCard {
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(36, 50, 74, 0.09);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px;
+}
+
+.header p,
+.header h1,
+.header span,
+.sectionHead h2,
+.sectionHead span {
+  margin: 0;
+}
+
+.header p {
+  color: var(--primary);
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.header h1 {
+  margin-top: 6px;
+  color: #182033;
+  font-size: clamp(34px, 5vw, 54px);
+}
+
+.header span,
+.sectionHead span {
+  color: #697386;
+  font-weight: 750;
+}
+
+.header button,
+.toolbar button,
+.searchResults button,
+.history button,
+.rowCard button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: #eef4ff;
+  color: #1e40af;
+  font-weight: 900;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: 180px minmax(260px, 1fr) repeat(3, auto);
+  gap: 12px;
+  align-items: end;
+  padding: 18px;
+}
+
+.toolbar label,
+.party label,
+.rowGrid label {
+  display: grid;
+  gap: 7px;
+}
+
+.toolbar span,
+.party span,
+.rowGrid span,
+.summary span,
+.tableFooter span,
+.partyStats span,
+.metrics span {
+  color: #697386;
+  font-weight: 780;
+}
+
+.toolbar input,
+.party input,
+.party select,
+.rowGrid input,
+.rowGrid select {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid rgba(36, 50, 74, 0.1);
+  border-radius: 14px;
+  background: #fff;
+  color: #182033;
+  font: inherit;
+  font-weight: 780;
+  padding: 0 12px;
+}
+
+.searchField {
+  min-width: 260px;
+}
+
+.toolbarButton,
+.toolbarButtonPrimary,
+.toolbarSubButton,
+.toolbarDangerButton {
+  min-width: 0;
+}
+
+.toolbarButtonPrimary {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+
+.toolbarSubButton {
+  grid-column: 1;
+}
+
+.toolbarDangerButton {
+  grid-column: 2;
+  border: 1px solid #f1c7c3 !important;
+  background: #fff !important;
+  color: #cf3d2e !important;
+}
+
+.history,
+.searchResults,
+.party,
+.tableSection,
+.rows {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.sectionHead {
+  display: grid;
+  gap: 4px;
+}
+
+.history article,
+.searchResults article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.history article > button:first-child {
+  display: grid;
+  justify-content: start;
+  text-align: left;
+  background: transparent;
+  color: #182033;
+  padding: 0;
+}
+
+.searchResults article div {
+  display: grid;
+  gap: 4px;
+}
+
+.partyGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.partyStats,
+.tableFooter {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.partyStats article,
+.tableFooter article {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 10px;
+  background: #f8fbff;
+  padding: 12px 14px;
+}
+
+.partyStats strong,
+.tableFooter strong,
+.summary strong {
+  color: #182033;
+  font-size: 22px;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary article {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.totalSection {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.total {
+  grid-column: 1;
+  background: linear-gradient(135deg, #080d1d, #2563eb) !important;
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 18px 44px rgba(36, 50, 74, 0.09);
+}
+
+.total span,
+.total strong {
+  color: #fff;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 8px;
+}
+
+.table {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.table th,
+.table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(36, 50, 74, 0.08);
+  text-align: left;
+  color: #182033;
+  font-weight: 760;
+  vertical-align: top;
+}
+
+.table th {
+  background: #f8fafc;
+  color: #697386;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.rows {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 44px rgba(36, 50, 74, 0.09);
+}
+
+.rowCard {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 12px;
+  background: #fbfdff;
+  box-shadow: none;
+}
+
+.rowCard header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rowCard header div {
+  display: grid;
+  gap: 3px;
+}
+
+.rowCard header span {
+  color: var(--primary);
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.rowCard header strong {
+  color: #182033;
+  font-size: 22px;
+}
+
+.rowCard header button {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.rowGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.wide {
+  grid-column: span 2;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metrics span {
+  display: block;
+  border: 1px solid rgba(36, 50, 74, 0.08);
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.metrics b {
+  display: block;
+  color: #182033;
+  margin-top: 4px;
+  font-size: 16px;
+}
+
+.empty {
+  border: 1px dashed rgba(36, 50, 74, 0.18);
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 30px;
+  text-align: center;
+  color: #697386;
+  font-weight: 850;
+}
+
+@media (max-width: 1280px) {
+  .toolbar,
+  .partyGrid,
+  .partyStats,
+  .summary,
+  .totalSection,
+  .rowGrid,
+  .metrics,
+  .tableFooter {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .header,
+  .history article,
+  .searchResults article,
+  .rowCard header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar,
+  .partyGrid,
+  .partyStats,
+  .summary,
+  .totalSection,
+  .rowGrid,
+  .metrics,
+  .tableFooter {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbarSubButton,
+  .toolbarDangerButton,
+  .total {
+    grid-column: auto;
+  }
+}

@@ -1,0 +1,39 @@
+.panel {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 9%, transparent), transparent 54%),
+    var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-soft);
+}
+
+.panel span {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.default {
+  border-color: color-mix(in srgb, var(--primary) 24%, var(--border));
+}
+
+.error {
+  border-color: rgba(255, 93, 114, 0.4);
+  background:
+    linear-gradient(135deg, rgba(255, 93, 114, 0.16), rgba(255, 159, 67, 0.06)),
+    var(--panel);
+  color: #ffd4da;
+}
+
+.success {
+  border-color: rgba(56, 226, 159, 0.4);
+  background:
+    linear-gradient(135deg, rgba(56, 226, 159, 0.16), rgba(34, 211, 238, 0.06)),
+    var(--panel);
+  color: var(--success);
+}
