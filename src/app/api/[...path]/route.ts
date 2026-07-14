@@ -1022,9 +1022,8 @@ async function syncMoySkladEmployeesToSupabaseCrm() {
 async function getCrmLoginUsers(data: AppData) {
   await syncMoySkladEmployeesToCrm(data).catch(() => {});
   if (!isSupabaseCrmEnabled()) {
-    const legacy = getLegacyCrmUsers().map(legacySessionUser);
     const local = data.users.filter((user) => user.active).map(publicUser);
-    return [...legacy, ...local.filter((user) => !legacy.some((legacyUser) => legacyUser.login === user.login))];
+    return local.length ? local : getLegacyCrmUsers().map(legacySessionUser);
   }
 
   try {
@@ -1034,14 +1033,16 @@ async function getCrmLoginUsers(data: AppData) {
       order: "name.asc",
     }) as JsonRecord[];
     const users = rows.map(sanitizeSupabaseUser);
-    if (!users.some((user) => user.passwordSet && (user.role === "admin" || user.role === "owner"))) {
+    if (!users.length) {
+      return getLegacyCrmUsers().map(legacySessionUser);
+    }
+    if (!users.some((user) => user.passwordSet && (user.role === "admin" || user.role === "owner")) && users.length === 1) {
       users.unshift(legacySessionUser(getLegacyCrmUsers()[0]));
     }
     return users;
   } catch {
-    const legacy = getLegacyCrmUsers().map(legacySessionUser);
     const local = data.users.filter((user) => user.active).map(publicUser);
-    return [...legacy, ...local.filter((user) => !legacy.some((legacyUser) => legacyUser.login === user.login))];
+    return local.length ? local : getLegacyCrmUsers().map(legacySessionUser);
   }
 }
 
