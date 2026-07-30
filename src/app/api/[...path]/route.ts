@@ -3535,16 +3535,28 @@ async function getMoySkladPriceTypes() {
   return Array.isArray(payload) ? payload.map(mapPriceType).filter((item) => item.href) : [];
 }
 
+type AccountingCurrency = {
+  href: string;
+  isoCode: string;
+  name: string;
+};
+
 async function getMoySkladAccountingCurrencies() {
   const rows = await moyskladRows("/entity/currency", { limit: "100" });
-  return new Map(rows.map((value) => {
+  const currenciesByHref = new Map<string, AccountingCurrency>();
+
+  for (const value of rows) {
     const row = asRecord(value);
-    return [asString(asRecord(row.meta).href), {
-      href: asString(asRecord(row.meta).href),
+    const href = asString(asRecord(row.meta).href);
+    if (!href) continue;
+    currenciesByHref.set(href, {
+      href,
       isoCode: asString(row.isoCode),
       name: asString(row.name || row.fullName),
-    }];
-  }).filter(([href]) => href));
+    });
+  }
+
+  return currenciesByHref;
 }
 
 async function getMoySkladProductFolders() {
@@ -3569,7 +3581,7 @@ async function getMoySkladProductFolders() {
   });
 }
 
-function resolveAccountingCurrency(currency: JsonRecord, currenciesByHref: Map<string, { href: string; isoCode: string; name: string }>) {
+function resolveAccountingCurrency(currency: JsonRecord, currenciesByHref: Map<string, AccountingCurrency>) {
   const href = asString(asRecord(currency.meta).href);
   const resolved = href ? currenciesByHref.get(href) : undefined;
   return {
@@ -3579,7 +3591,7 @@ function resolveAccountingCurrency(currency: JsonRecord, currenciesByHref: Map<s
   };
 }
 
-function mapAccountingProduct(value: unknown, currenciesByHref = new Map<string, { href: string; isoCode: string; name: string }>()) {
+function mapAccountingProduct(value: unknown, currenciesByHref = new Map<string, AccountingCurrency>()) {
   const row = asRecord(value);
   const salePrices = Array.isArray(row.salePrices) ? row.salePrices.map(asRecord) : [];
   const folder = asRecord(row.productFolder);
