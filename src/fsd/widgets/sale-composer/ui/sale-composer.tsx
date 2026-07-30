@@ -523,6 +523,7 @@ export function SaleComposer({
     : [];
   const primaryMixedPaymentType = normalizedPaymentParts[0];
   const secondaryMixedPaymentType = normalizedPaymentParts[1];
+  const receiptPhotoOptional = mode === "debt" || draft.paymentScenario === "cash";
 
   const productSearchMutation = useMutation({
     mutationFn: (search: string) => getProducts(search, selectedStore?.storeHref ?? "", branchName),
@@ -746,7 +747,7 @@ export function SaleComposer({
         usedPaymentTypes.add(part.paymentTypeHref);
       }
     }
-    if (!receiptFile && mode !== "debt") throw new Error("Добавьте фотографию чека.");
+    if (!receiptFile && !receiptPhotoOptional) throw new Error("Добавьте фотографию чека.");
     if (mode === "debt" && draft.customerMode === "retail") throw new Error("Для продажи в долг выберите нового или старого клиента.");
     if (draft.customerMode === "new" && (!draft.customerName.trim() || !draft.customerPhone.trim())) throw new Error("Введите имя и телефон клиента.");
     if (draft.customerMode === "existing" && !draft.customerHref) throw new Error("Выберите существующего клиента.");
@@ -1197,7 +1198,15 @@ export function SaleComposer({
             <ReceiptText size={18} />
             <div>
               <strong>Фото чека</strong>
-              <small>{receiptFile ? receiptFile.name : mode === "debt" ? "Необязательно для продажи в долг" : "Сфоткайте чек или выберите изображение"}</small>
+              <small>
+                {receiptFile
+                  ? receiptFile.name
+                  : receiptPhotoOptional
+                    ? draft.paymentScenario === "cash"
+                      ? "Необязательно при оплате наличными"
+                      : "Необязательно для продажи в долг"
+                    : "Сфоткайте чек или выберите изображение"}
+              </small>
             </div>
           </div>
           <div className={styles.receiptActions}>

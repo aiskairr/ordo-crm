@@ -273,7 +273,36 @@
     ]
   },
   "customsHistory": [],
-  "orders": [],
+  "orders": [
+    {
+      "id": "c2ac7f4c-8bfe-11f1-0a80-1f4b0015cc2c",
+      "type": "retaildemand",
+      "name": "00669",
+      "moment": "2026-07-30T10:09:35.569Z",
+      "amount": 2200,
+      "paid": 2200,
+      "unpaid": 0,
+      "netProfit": 2028.64,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "ИП Аминхан",
+      "customerPhone": "+71939732937293",
+      "customerType": "legal",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Фен VGR V-463",
+          "quantity": 1,
+          "price": 2200,
+          "sum": 2200,
+          "isGift": false
+        }
+      ]
+    }
+  ],
   "companies": [
     {
       "id": "a15c5d0f-752d-4ef6-ba2d-bf381925e506",
