@@ -19,12 +19,18 @@ export function StatusPanel({
   );
 }
 
-export function AuthRequired() {
+export function AuthRequired({
+  title = "Нужно войти в систему",
+  description = "Сессия не найдена или истекла. Откройте старую CRM и авторизуйтесь снова.",
+}: {
+  title?: string;
+  description?: string;
+} = {}) {
   return (
     <StatusPanel
       tone="error"
-      title="Нужно войти в систему"
-      description="Сессия не найдена или истекла. Откройте старую CRM и авторизуйтесь снова."
+      title={title}
+      description={description}
     />
   );
 }

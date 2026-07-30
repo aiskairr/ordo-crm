@@ -94,7 +94,7 @@ export async function getBankCommissions(filters: BankCommissionFilters): Promis
   const params = new URLSearchParams({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
   if (filters.bank) params.set("bank", filters.bank);
   if (filters.paymentType) params.set("paymentType", filters.paymentType);
-  const payload = asRecord(await apiClient<unknown>(`/api/reports/bank-commissions?${params.toString()}`));
+  const payload = asRecord(await apiClient<unknown>(`/api/reports/bank-commissions?${params.toString()}`, { timeoutMs: 60000 }));
   const totals = asRecord(payload.totals);
 
   return {

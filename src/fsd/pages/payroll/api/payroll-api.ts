@@ -178,7 +178,7 @@ function normalizeTotals(value: unknown): PayrollTotals {
 
 export async function getPayrollReport(params: { dateFrom: string; dateTo: string }): Promise<PayrollReport> {
   const searchParams = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
-  const payload = asRecord(await apiClient<unknown>(`/api/payroll?${searchParams.toString()}`));
+  const payload = asRecord(await apiClient<unknown>(`/api/payroll?${searchParams.toString()}`, { timeoutMs: 60000 }));
   return {
     dateFrom: asString(payload.dateFrom),
     dateTo: asString(payload.dateTo),

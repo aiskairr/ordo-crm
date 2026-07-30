@@ -1,5 +1,5 @@
 import { apiClient } from "@/src/fsd/shared/api";
-import type { CrmRole, CrmUser, CrmUserUpdate } from "@/src/fsd/entities/user";
+import type { CrmRole, CrmUser, CrmUserCreate, CrmUserUpdate } from "@/src/fsd/entities/user";
 
 type UnknownRecord = Record<string, unknown>;
 type MoySkladRemovalStatus = NonNullable<CrmUser["moySkladRemoval"]>["status"];
@@ -52,6 +52,7 @@ function normalizeUser(value: unknown): CrmUser {
     permissions: asStringArray(record.permissions ?? record.sections),
     active: asBoolean(record.active ?? record.isActive),
     passwordSet: asBoolean(record.passwordSet, false),
+    moySkladEmployeeHref: asString(record.moySkladEmployeeHref ?? record.moysklad_employee_href),
     moySkladRemoval: record.moySkladRemoval && typeof record.moySkladRemoval === "object"
       ? {
           status: asString(asRecord(record.moySkladRemoval).status) as MoySkladRemovalStatus,
@@ -78,6 +79,27 @@ export async function updateCrmUser(id: string, payload: CrmUserUpdate) {
       body: payload,
     });
   return normalizeUser(asRecord(response).user ?? response);
+}
+
+export async function createCrmUser(payload: CrmUserCreate) {
+  const response = await apiClient<unknown>("/api/crm/users", {
+    method: "POST",
+    body: payload,
+  });
+  return normalizeUser(asRecord(response).user ?? response);
+}
+
+export async function syncCrmUsersFromMoySklad() {
+  const response = asRecord(await apiClient<unknown>("/api/crm/users/sync-moysklad", {
+    method: "POST",
+  }));
+  return {
+    createdIds: asStringArray(response.createdIds),
+    linkedIds: asStringArray(response.linkedIds),
+    deactivatedIds: asStringArray(response.deactivatedIds),
+    activeEmployees: asNumber(response.activeEmployees),
+    skippedDeleted: asNumber(response.skippedDeleted),
+  };
 }
 
 export async function deleteCrmUser(id: string) {

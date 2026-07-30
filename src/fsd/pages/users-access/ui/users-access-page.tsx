@@ -1,8 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, KeyRound, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CloudDownload, Eye, EyeOff, KeyRound, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
+import { useMemo, useState } from "react";
 import type { CrmRole, CrmUser, CrmUserUpdate } from "@/src/fsd/entities/user";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
 import { getErrorText, isUnauthorizedError } from "@/src/fsd/shared/lib/errors";
@@ -10,7 +10,7 @@ import { AuthRequired, StatusPanel } from "@/src/fsd/shared/ui/status";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getShellSession } from "@/src/fsd/widgets/app-shell/api/app-shell-api";
 import { AppShell } from "@/src/fsd/widgets/app-shell";
-import { deleteCrmUser, getCrmUsers, updateCrmUser } from "../api/users-access-api";
+import { deleteCrmUser, getCrmUsers, syncCrmUsersFromMoySklad, updateCrmUser } from "../api/users-access-api";
 import {
   arePermissionsLocked,
   BRANCHES,
@@ -30,6 +30,7 @@ import {
   toUserDraft,
   type UsersAccessDraft,
 } from "../model/users-access-model";
+import { CreateUserPanel } from "./create-user-panel";
 import styles from "./users-access-page.module.css";
 
 const roles = Object.keys(ROLE_LABELS) as CrmRole[];
@@ -41,6 +42,7 @@ function UserCard({
   draft,
   saving,
   deleting,
+  isNew,
   onChange,
   onSave,
   onDelete,
@@ -51,6 +53,7 @@ function UserCard({
   draft: UsersAccessDraft;
   saving: boolean;
   deleting: boolean;
+  isNew: boolean;
   onChange: (id: string, patch: Partial<UsersAccessDraft>) => void;
   onSave: (draft: UsersAccessDraft) => void;
   onDelete: (draft: UsersAccessDraft) => void;
@@ -86,7 +89,10 @@ function UserCard({
         <div className={styles.identity}>
           <div className={styles.avatar}>{initials(draft.name || draft.login)}</div>
           <div className={styles.identityText}>
-            <h2>{draft.name || draft.login}</h2>
+            <div className={styles.nameRow}>
+              <h2>{draft.name || draft.login}</h2>
+              {isNew ? <span className={styles.newBadge}>Новый</span> : null}
+            </div>
             <p>{draft.position || ROLE_LABELS[draft.role]}</p>
           </div>
         </div>
@@ -282,27 +288,44 @@ export function UsersAccessPage() {
   const [drafts, setDrafts] = useState<Record<string, UsersAccessDraft>>({});
   const [savingIds, setSavingIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
+  const [newUserIds, setNewUserIds] = useState<string[]>([]);
 
   const sessionQuery = useQuery({ queryKey: ["crm-session"], queryFn: getShellSession });
   const usersQuery = useQuery({ queryKey: ["crm-users"], queryFn: getCrmUsers });
 
-  useEffect(() => {
-    if (!usersQuery.data) return;
-    setDrafts((current) => {
-      const next: Record<string, UsersAccessDraft> = {};
-      for (const user of usersQuery.data) {
-        const previous = current[user.id];
-        next[user.id] = previous
-          ? { ...toUserDraft(user), password: previous.password, passwordVisible: previous.passwordVisible }
-          : toUserDraft(user);
-      }
-      return next;
-    });
-  }, [usersQuery.data]);
-
   const actor = sessionQuery.data?.user ?? null;
-  const users = usersQuery.data ?? [];
+  const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
+  const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const filteredUsers = useMemo(() => filterUsers(users, search, roleFilter), [users, search, roleFilter]);
+
+  const syncMutation = useMutation({
+    mutationFn: syncCrmUsersFromMoySklad,
+    onSuccess: async (result) => {
+      setNewUserIds(result.createdIds);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["crm-users"] }),
+        queryClient.invalidateQueries({ queryKey: ["employees"] }),
+      ]);
+      const details = [
+        `Новых: ${result.createdIds.length}`,
+        `скрыто удалённых: ${result.deactivatedIds.length}`,
+        `помечено удалёнными в МойСклад: ${result.skippedDeleted}`,
+        `активных в МойСклад: ${result.activeEmployees}`,
+      ];
+      showToast({
+        tone: "success",
+        title: result.createdIds.length ? "Новые сотрудники добавлены" : "Список сотрудников актуален",
+        description: details.join(" · "),
+      });
+    },
+    onError: (error) => {
+      showToast({
+        tone: "error",
+        title: "Не удалось проверить МойСклад",
+        description: getErrorText(error),
+      });
+    },
+  });
 
   const saveMutation = useMutation({
     mutationFn: async (draft: UsersAccessDraft) => {
@@ -364,7 +387,7 @@ export function UsersAccessPage() {
 
   const updateDraft = (id: string, patch: Partial<UsersAccessDraft>) => {
     setDrafts((current) => {
-      const draft = current[id];
+      const draft = current[id] ?? (usersById.get(id) ? toUserDraft(usersById.get(id)!) : null);
       if (!draft) return current;
       const next = { ...draft, ...patch };
       if ("role" in patch && patch.role) {
@@ -401,15 +424,27 @@ export function UsersAccessPage() {
             <h1>Сотрудники</h1>
             <p>Роли, филиалы, разрешенные разделы и пароли входа.</p>
           </div>
-          <button className={styles.refreshButton} onClick={() => usersQuery.refetch()} disabled={usersQuery.isFetching}>
-            <RefreshCw size={16} className={usersQuery.isFetching ? styles.spin : ""} />
-            Обновить
-          </button>
+          <div className={styles.heroActions}>
+            <button
+              className={styles.secondaryButton}
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+            >
+              <CloudDownload size={16} className={syncMutation.isPending ? styles.spin : ""} />
+              {syncMutation.isPending ? "Проверяем..." : "Проверить МойСклад"}
+            </button>
+            <button className={styles.refreshButton} onClick={() => usersQuery.refetch()} disabled={usersQuery.isFetching}>
+              <RefreshCw size={16} className={usersQuery.isFetching ? styles.spin : ""} />
+              Обновить
+            </button>
+          </div>
         </header>
 
         <div className={styles.notice}>
           Важно: новый пароль применяется сразу. Уже открытая сессия сотрудника обновится после повторного входа.
         </div>
+
+        {actor ? <CreateUserPanel actor={actor} /> : null}
 
         {usersQuery.isLoading ? <StatusPanel title="Загрузка сотрудников" description="Получаем учетные записи из CRM." /> : null}
         {usersQuery.error && isUnauthorizedError(usersQuery.error) ? <AuthRequired /> : null}
@@ -442,7 +477,14 @@ export function UsersAccessPage() {
 
             <div className={styles.cards}>
               {filteredUsers.map((user) => {
-                const draft = drafts[user.id] ?? toUserDraft(user);
+                const draft = drafts[user.id]
+                  ? {
+                      ...toUserDraft(user),
+                      ...drafts[user.id],
+                      password: drafts[user.id].password,
+                      passwordVisible: drafts[user.id].passwordVisible,
+                    }
+                  : toUserDraft(user);
                 return (
                   <UserCard
                     key={user.id}
@@ -450,6 +492,7 @@ export function UsersAccessPage() {
                     draft={draft}
                     saving={savingIds.includes(user.id)}
                     deleting={deletingIds.includes(user.id)}
+                    isNew={newUserIds.includes(user.id)}
                     onChange={updateDraft}
                     onSave={(value) => saveMutation.mutate(value)}
                     onDelete={handleDelete}

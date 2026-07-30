@@ -5,10 +5,10 @@
       "phone": "996600610900",
       "customerName": "амин",
       "customerTypeLabel": "Номер",
-      "lastMessageAt": "2026-07-13T21:40:38.756Z",
+      "lastMessageAt": "2026-07-21T07:48:04.499Z",
       "unreadCount": 0,
       "draft": "",
-      "draftUpdatedAt": "2026-07-13T21:40:38.756Z",
+      "draftUpdatedAt": "2026-07-21T07:48:04.499Z",
       "messages": [
         {
           "id": "a6ae9354-4c9a-4b79-b678-7ccd79e669e1",
@@ -41,6 +41,70 @@
           "createdAt": "2026-07-13T21:40:38.756Z",
           "status": "sent",
           "author": "manager"
+        },
+        {
+          "id": "11577c21-61c8-4694-a4ba-ce61ba6843e8",
+          "direction": "outgoing",
+          "text": "sdf",
+          "createdAt": "2026-07-14T20:23:58.987Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "65acfc71-d565-4f5f-bf3d-b7ec06784273",
+          "direction": "outgoing",
+          "text": "чощза",
+          "createdAt": "2026-07-14T20:26:18.240Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "6ae24dee-e59c-4931-a3cb-127035e1ca58",
+          "direction": "outgoing",
+          "text": "ыва",
+          "createdAt": "2026-07-14T20:45:57.888Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "2a7a8efb-abd5-4566-ae9e-bf336d1f1745",
+          "direction": "outgoing",
+          "text": "sad",
+          "createdAt": "2026-07-20T13:47:39.651Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "c6d59f5a-11a8-47e8-8c1a-52c444c6b915",
+          "direction": "outgoing",
+          "text": "asdasd",
+          "createdAt": "2026-07-20T13:48:17.208Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "147b9bb2-aa4c-4ea4-a0cd-eeafc339fd49",
+          "direction": "outgoing",
+          "text": "asdasd",
+          "createdAt": "2026-07-20T13:48:54.501Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "2580452a-f7c1-465d-832f-ea89c8039690",
+          "direction": "outgoing",
+          "text": "sadasd",
+          "createdAt": "2026-07-20T13:49:11.748Z",
+          "status": "sent",
+          "author": "manager"
+        },
+        {
+          "id": "a480181a-28d2-44c8-a36e-44911f31d966",
+          "direction": "outgoing",
+          "text": "gyg",
+          "createdAt": "2026-07-21T07:48:04.499Z",
+          "status": "sent",
+          "author": "manager"
         }
       ]
     },
@@ -49,10 +113,10 @@
       "phone": "277824959189008",
       "customerName": "277824959189008",
       "customerTypeLabel": "",
-      "lastMessageAt": "2026-07-14T12:01:43.449Z",
+      "lastMessageAt": "2026-07-21T07:48:27.791Z",
       "unreadCount": 0,
       "draft": "",
-      "draftUpdatedAt": "2026-07-14T12:01:43.449Z",
+      "draftUpdatedAt": "2026-07-21T07:48:27.792Z",
       "messages": [
         {
           "id": "cf935ca8-444e-4540-892d-35a81a343d7a",
@@ -405,6 +469,70 @@
           "createdAt": "2026-07-14T12:01:43.449Z",
           "status": "sent",
           "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3ADD0C23A911006044ED",
+          "direction": "incoming",
+          "text": "Привет",
+          "createdAt": "2026-07-14T21:07:44.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "f98d37b1-d20d-4eb1-9166-5e9618adc53e",
+          "direction": "outgoing",
+          "text": "Привет! Какая максимальная глубина или загрузка стиральной машины вам нужна?",
+          "createdAt": "2026-07-14T21:07:46.886Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A7A6FF4CC1EAE2CCF4B",
+          "direction": "incoming",
+          "text": "Мне нужна бритва",
+          "createdAt": "2026-07-14T21:09:22.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "0712f725-ea1f-4bdc-b05e-0841c06a4ac0",
+          "direction": "outgoing",
+          "text": "К сожалению, бритв сейчас нет в наличии. Вас интересует что-то другое из техники?",
+          "createdAt": "2026-07-14T21:09:24.198Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A34C59AC28961C23CF0",
+          "direction": "incoming",
+          "text": "Вася",
+          "createdAt": "2026-07-21T07:48:19.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "20c822cf-12fb-4b5c-a884-b7b7c5854678",
+          "direction": "outgoing",
+          "text": "К сожалению, товаров с таким названием нет. Что именно из техники вы ищете?",
+          "createdAt": "2026-07-21T07:48:21.459Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_277824959189008@lid_3A64E7CE755F0E4CFED7",
+          "direction": "incoming",
+          "text": "Что",
+          "createdAt": "2026-07-21T07:48:26.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "962d0bad-49c1-4aad-9793-fb7a31251244",
+          "direction": "outgoing",
+          "text": "У нас есть смартфоны, ноутбуки, наушники и бытовая техника. Что именно вас интересует?",
+          "createdAt": "2026-07-21T07:48:27.791Z",
+          "status": "sent",
+          "author": "ai"
         }
       ]
     },
@@ -413,10 +541,10 @@
       "phone": "113748115226859",
       "customerName": "113748115226859",
       "customerTypeLabel": "",
-      "lastMessageAt": "2026-07-14T11:56:38.614Z",
+      "lastMessageAt": "2026-07-14T12:32:39.242Z",
       "unreadCount": 0,
       "draft": "",
-      "draftUpdatedAt": "2026-07-14T11:56:38.614Z",
+      "draftUpdatedAt": "2026-07-14T12:32:39.242Z",
       "messages": [
         {
           "id": "976c8086-1a13-45a5-bb51-77be880bea2d",
@@ -631,6 +759,866 @@
           "direction": "outgoing",
           "text": "В наличии есть следующие модели на 6 кг:\n\n1. MIDEA MFN60-S1003S — 24 000 сом\n2. BLESK BFN60-2203S — 33 000 сом\n3. BEKO WSPE 6H 616W — 43 000 сом",
           "createdAt": "2026-07-14T11:56:38.614Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_113748115226859@lid_2A12E518E24C50B2A279",
+          "direction": "incoming",
+          "text": "Есть холодильник высотой 185",
+          "createdAt": "2026-07-14T12:32:37.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "29e47caa-ef07-4b93-b656-5f47146454d7",
+          "direction": "outgoing",
+          "text": "В наличии есть следующие модели:\n\n1. ATLANT ХМ 4621-101 — 38 000 сом\n2. LG GA-B419 SYGL — 52 000 сом",
+          "createdAt": "2026-07-14T12:32:39.242Z",
+          "status": "sent",
+          "author": "ai"
+        }
+      ]
+    },
+    {
+      "chatId": "17381216472@lid",
+      "phone": "17381216472",
+      "customerName": "17381216472",
+      "customerTypeLabel": "",
+      "lastMessageAt": "2026-07-14T21:12:06.848Z",
+      "unreadCount": 0,
+      "draft": "",
+      "draftUpdatedAt": "2026-07-14T21:12:06.848Z",
+      "messages": [
+        {
+          "id": "false_17381216472@lid_3AEF987FBB946E954A52",
+          "direction": "incoming",
+          "text": "Здравствуй",
+          "createdAt": "2026-07-14T21:10:34.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "50d06a0b-192d-4dab-a1ff-b629ecfc6e6d",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Какую технику вы ищете?",
+          "createdAt": "2026-07-14T21:10:36.907Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_17381216472@lid_3A45165444682993EF15",
+          "direction": "incoming",
+          "text": "Мне нужен кондиционер, какой у вас ходовой хороший",
+          "createdAt": "2026-07-14T21:11:02.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "1430e54a-a545-415b-97ae-07eec7cca917",
+          "direction": "outgoing",
+          "text": "К сожалению, кондиционеров сейчас нет в наличии. Вас интересует что-то другое из техники?",
+          "createdAt": "2026-07-14T21:11:05.063Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_17381216472@lid_3A125C1119081DA8F351",
+          "direction": "incoming",
+          "text": "У вас же есть я же видел",
+          "createdAt": "2026-07-14T21:11:20.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "3764bd2b-8b5d-4a8c-9f52-9dd537393797",
+          "direction": "outgoing",
+          "text": "К сожалению, в текущем ассортименте кондиционеров нет. Подсказать что-то из другой техники?",
+          "createdAt": "2026-07-14T21:11:21.861Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_17381216472@lid_3AF5C0937621ABC44FF2",
+          "direction": "incoming",
+          "text": "Путаешь",
+          "createdAt": "2026-07-14T21:11:29.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "f2a97417-2fac-47b6-9474-8eed4ca35f2e",
+          "direction": "outgoing",
+          "text": "Приношу извинения, но в нашей текущей базе товаров кондиционеров действительно нет. Подсказать что-то другое из техники?",
+          "createdAt": "2026-07-14T21:11:30.270Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_17381216472@lid_3ADC887239F2CE3A67A1",
+          "direction": "incoming",
+          "text": "Ты при понятиях? \nЧе ты так базаришь мразь",
+          "createdAt": "2026-07-14T21:11:45.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "6deec050-c341-40f6-93eb-a4e61aecfb3c",
+          "direction": "outgoing",
+          "text": "Приношу извинения за недопонимание. Подсказать что-то другое из ассортимента техники?",
+          "createdAt": "2026-07-14T21:11:47.566Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_17381216472@lid_3A3C6C60516C4225204B",
+          "direction": "incoming",
+          "text": "Дай мне кондер сраный говорю дура ты тупая",
+          "createdAt": "2026-07-14T21:11:57.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "649a718a-6bd3-473a-90c5-d7475c9ce499",
+          "direction": "outgoing",
+          "text": "Кондиционеров в наличии нет. Могу предложить другую технику из нашего ассортимента?",
+          "createdAt": "2026-07-14T21:11:59.576Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_17381216472@lid_3AF860F77C36EE8524B3",
+          "direction": "incoming",
+          "text": "ЕСТЬ Я ГОВОРЮ",
+          "createdAt": "2026-07-14T21:12:05.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "d411b9ab-56f7-40d5-b302-e69af7ed3cfe",
+          "direction": "outgoing",
+          "text": "Кондиционеров в наличии нет. Что именно из другой техники вас интересует?",
+          "createdAt": "2026-07-14T21:12:06.848Z",
+          "status": "sent",
+          "author": "ai"
+        }
+      ]
+    },
+    {
+      "chatId": "240746003226758@lid",
+      "phone": "240746003226758",
+      "customerName": "240746003226758",
+      "customerTypeLabel": "",
+      "lastMessageAt": "2026-07-15T18:38:46.000Z",
+      "unreadCount": 1,
+      "draft": "",
+      "draftUpdatedAt": "2026-07-15T18:37:19.368Z",
+      "messages": [
+        {
+          "id": "false_240746003226758@lid_ACDD59D150D7897E9718553D0954D247",
+          "direction": "incoming",
+          "text": "Привет",
+          "createdAt": "2026-07-14T21:14:58.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "b0c1d5ab-b0cf-46b6-a07d-b9d566b579c6",
+          "direction": "outgoing",
+          "text": "Привет! Какую технику вы ищете?",
+          "createdAt": "2026-07-14T21:15:01.441Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACA85886371DE78CDBBC78336D82B311",
+          "direction": "incoming",
+          "text": "Бритва",
+          "createdAt": "2026-07-14T21:15:07.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "34d9938f-3213-42ac-996d-96a1e58a7880",
+          "direction": "outgoing",
+          "text": "К сожалению, бритв сейчас нет в наличии. Вас интересует что-то другое из техники?",
+          "createdAt": "2026-07-14T21:15:09.737Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC9999FD9B3CECC6906F5D43F042F333",
+          "direction": "incoming",
+          "text": "Стиральные машинки",
+          "createdAt": "2026-07-14T21:15:16.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "36d8ab14-34c4-4099-8442-1a743af17487",
+          "direction": "outgoing",
+          "text": "К сожалению, стиральных машин сейчас нет в наличии. Вас интересует что-то другое из техники?",
+          "createdAt": "2026-07-14T21:15:18.165Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC67C32CFC2EE3131FABBB119073F99E",
+          "direction": "incoming",
+          "text": "Что есть в наличи:",
+          "createdAt": "2026-07-14T21:15:23.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "c9b6bb8f-e39c-4c8b-9035-0aa78a8ec3b0",
+          "direction": "outgoing",
+          "text": "К сожалению, сейчас в наличии нет товаров. Что именно вы ищете?",
+          "createdAt": "2026-07-14T21:15:25.244Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACBA50956E9B615E17CB5E33E7E13E0F",
+          "direction": "incoming",
+          "text": "?",
+          "createdAt": "2026-07-14T21:15:46.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "defce5dd-8441-44ce-af47-01dd0a0fbef2",
+          "direction": "outgoing",
+          "text": "Уточните, пожалуйста, какую именно технику вы ищете?",
+          "createdAt": "2026-07-14T21:15:48.016Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC324A8AEEE6BA65BE03CEB60143F0CB",
+          "direction": "incoming",
+          "text": "Вымсле нету а зачем ты мне предлагаешь тогда?",
+          "createdAt": "2026-07-14T21:16:00.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "adcc9719-c7b7-4162-a6ee-87cd9fa8f856",
+          "direction": "outgoing",
+          "text": "Приношу извинения за недопонимание. Подскажите, пожалуйста, какая техника вас интересует, чтобы я проверил актуальное наличие?",
+          "createdAt": "2026-07-14T21:16:02.948Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC2F11A19AE5E437095BEC922B5195D6",
+          "direction": "incoming",
+          "text": "Бритва",
+          "createdAt": "2026-07-14T21:16:57.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "37120039-d927-479f-8b5c-db834ce405eb",
+          "direction": "outgoing",
+          "text": "К сожалению, бритв сейчас нет в наличии. Какую еще технику вы рассматриваете?",
+          "createdAt": "2026-07-14T21:16:59.168Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACEB632D3FC49FFD62EFA79D56D5F53C",
+          "direction": "incoming",
+          "text": "Массаж члена сколько будет стоить?",
+          "createdAt": "2026-07-14T21:18:56.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "b582c825-716f-4b98-bea4-d09f4f8296ac",
+          "direction": "outgoing",
+          "text": "К сожалению, таких товаров у нас нет. Какую другую технику вы ищете?",
+          "createdAt": "2026-07-14T21:18:57.864Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC1D0C63E630219DC421B5EE94F3AD09",
+          "direction": "incoming",
+          "text": "Здрасть",
+          "createdAt": "2026-07-14T21:25:02.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "7bb51928-fb8b-4242-b8bf-a3bbf27ace89",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Какую технику вы ищете?",
+          "createdAt": "2026-07-14T21:25:04.149Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC6BD129DD0ED2DFF59D3AE60AE90308",
+          "direction": "incoming",
+          "text": "Бритва",
+          "createdAt": "2026-07-14T21:25:08.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "d82ca68a-a0bf-4bfb-b41d-ed0d0fbc8a20",
+          "direction": "outgoing",
+          "text": "К сожалению, бритв сейчас нет в наличии. Какую другую технику вы ищете?",
+          "createdAt": "2026-07-14T21:25:12.446Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACC69C7D740880D0AFB33119ABDD834A",
+          "direction": "incoming",
+          "text": "У вас что ни будь вообще есть ?",
+          "createdAt": "2026-07-14T21:26:07.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "040eb20a-195b-4082-a6da-60f369593fb9",
+          "direction": "outgoing",
+          "text": "В наличии есть смартфоны, наушники и портативные колонки. Что из этого вас интересует?",
+          "createdAt": "2026-07-14T21:26:09.205Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACF90A940E34587876340ABF6CCEA663",
+          "direction": "incoming",
+          "text": "Давай смартфоны покажи какие",
+          "createdAt": "2026-07-14T21:26:26.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "f365be8c-8c7d-4bc3-9bd7-fc6d414074f6",
+          "direction": "outgoing",
+          "text": "К сожалению, по текущему складу остаток смартфонов нулевой. Вас интересуют наушники или колонки?",
+          "createdAt": "2026-07-14T21:26:28.448Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC8B09875063CDCA54870D48166FCB8C",
+          "direction": "incoming",
+          "text": "Ты же сказал даун тупо что у тебя есть смартфоны",
+          "createdAt": "2026-07-14T21:26:41.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "5a6e30db-f433-4139-87c6-2690084934a0",
+          "direction": "outgoing",
+          "text": "Приношу извинения за ошибку. Смартфонов сейчас действительно нет в наличии. \n\nВас интересуют наушники или колонки?",
+          "createdAt": "2026-07-14T21:26:44.510Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACF418A5DFBA6413A128C6FFEC0A41DF",
+          "direction": "incoming",
+          "text": "Колонки покажи",
+          "createdAt": "2026-07-14T21:26:52.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "ee28d616-a5a2-466c-b7cb-48f51a123f80",
+          "direction": "outgoing",
+          "text": "К сожалению, по текущему складу остаток колонок нулевой. Вас интересует что-то другое?",
+          "createdAt": "2026-07-14T21:26:54.243Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACD58D8FB0D7A89ECBC3058D8FD0C634",
+          "direction": "incoming",
+          "text": "Я общаюсь с ИИ ? или с человеком",
+          "createdAt": "2026-07-14T21:27:10.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "550ed171-7f6f-481f-8e9f-5415c5257b1a",
+          "direction": "outgoing",
+          "text": "Вы общаетесь с виртуальным помощником магазина. Чем я могу вам помочь?",
+          "createdAt": "2026-07-14T21:27:13.855Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC19208940345F6D8DA205BED3A136A1",
+          "direction": "incoming",
+          "text": "Ууц",
+          "createdAt": "2026-07-14T21:29:03.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "b06cb6b3-5934-43c0-a7e1-dc6aaee143c7",
+          "direction": "outgoing",
+          "text": "Извините, не понял ваш запрос. Что именно вы ищете?",
+          "createdAt": "2026-07-14T21:29:04.790Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC5D1D58AE80D4377FBD89FB952E23AD",
+          "direction": "incoming",
+          "text": "Привет!",
+          "createdAt": "2026-07-14T21:32:05.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "47dd2601-8ef1-4551-9165-bb68aa4be20c",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Какую технику вы ищете?",
+          "createdAt": "2026-07-14T21:32:06.636Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC5019D9BE7A899C84FE5B1604E0FD20",
+          "direction": "incoming",
+          "text": "Принтеры есть в наличии",
+          "createdAt": "2026-07-14T21:32:19.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "9c8a09a7-852f-4bb8-aa51-b05da6ae97bb",
+          "direction": "outgoing",
+          "text": "К сожалению, принтеров сейчас нет в наличии. Вас интересует что-то другое из техники?",
+          "createdAt": "2026-07-14T21:32:20.588Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC77655D3BB5CEB932812A4F91DFF7CF",
+          "direction": "incoming",
+          "text": "Напиши пузырьковую сортировку на python",
+          "createdAt": "2026-07-14T21:32:45.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "d99c001e-6156-4061-9212-40ab6f28fd2c",
+          "direction": "outgoing",
+          "text": "Мы продаем технику, а не пишем код. Вас интересует что-то из нашего ассортимента?",
+          "createdAt": "2026-07-14T21:32:47.276Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC013446808F80D097B71ECDA25132C6",
+          "direction": "incoming",
+          "text": "Ну мне для покупки техники нужна сортировка",
+          "createdAt": "2026-07-14T21:33:16.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "cc114a1c-3dee-47f2-ba4f-f16d8d80c41d",
+          "direction": "outgoing",
+          "text": "К сожалению, мы занимаемся только продажей техники. Какое устройство вы ищете?",
+          "createdAt": "2026-07-14T21:33:18.294Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACFE6DC32AEBE29C999CA36F739F5314",
+          "direction": "incoming",
+          "text": "Сосать член можешь ?",
+          "createdAt": "2026-07-14T21:33:25.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "818f1f42-c0f8-4aa7-becc-cddd3e137ae2",
+          "direction": "outgoing",
+          "text": "Мы занимаемся только продажей техники. Какое устройство вас интересует?",
+          "createdAt": "2026-07-14T21:33:26.926Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACB0C4711B7952ADFF531195384C8FF0",
+          "direction": "incoming",
+          "text": "Чё ты одно и то же пишешь",
+          "createdAt": "2026-07-14T21:33:33.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "c7794239-e90b-4e83-b24b-39ebe59e880e",
+          "direction": "outgoing",
+          "text": "Я занимаюсь только продажей техники. Какое устройство вас интересует?",
+          "createdAt": "2026-07-14T21:33:34.918Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC8CF9DC54E9FC8306F487545F6E3B3F",
+          "direction": "incoming",
+          "text": "Вы занимаетесь чем либо кроме продажи техники ?",
+          "createdAt": "2026-07-14T21:33:57.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "3036cbe3-b8fd-4781-bb1e-5b246aca4d5a",
+          "direction": "outgoing",
+          "text": "Нет, мы специализируемся только на технике. Какое устройство вас интересует?",
+          "createdAt": "2026-07-14T21:33:58.566Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC3ADB2AA29D588125E99058B07E23F2",
+          "direction": "incoming",
+          "text": "Что у тебя есть",
+          "createdAt": "2026-07-14T21:34:03.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "5b46938d-484b-4648-b18d-2ccd5271e436",
+          "direction": "outgoing",
+          "text": "У нас большой выбор смартфонов, ноутбуков и аксессуаров. Какое устройство вас интересует?",
+          "createdAt": "2026-07-14T21:34:05.278Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACD534BE693E1409C6F0DF932551A055",
+          "direction": "incoming",
+          "text": "Предложи мне что-то, что продается больше всего",
+          "createdAt": "2026-07-14T21:34:18.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "bce30803-b245-4c2c-8d8d-d450b02575bc",
+          "direction": "outgoing",
+          "text": "Наши лидеры продаж — iPhone 15 и ноутбуки MacBook Air M2. Что из этого вам интереснее?",
+          "createdAt": "2026-07-14T21:34:20.381Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC4D49689422ADFC45DC649E684D4742",
+          "direction": "incoming",
+          "text": "Iphone 15 хочу купить скажи цену",
+          "createdAt": "2026-07-14T21:34:39.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "66cf3a71-3104-4c3f-8afb-74546035a73c",
+          "direction": "outgoing",
+          "text": "К сожалению, по текущему складу остаток iPhone 15 нулевой. Рассматриваете другие модели смартфонов?",
+          "createdAt": "2026-07-14T21:34:40.961Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACA112E5C5A473655298660E7BB53558",
+          "direction": "incoming",
+          "text": "Ты же сказал есть",
+          "createdAt": "2026-07-14T21:34:47.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "1e34a5d9-cd01-430f-8bf1-b9c8d16aed17",
+          "direction": "outgoing",
+          "text": "Приношу извинения за недопонимание. В данный момент iPhone 15 нет в наличии. Рассматриваете другие модели смартфонов?",
+          "createdAt": "2026-07-14T21:34:48.953Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC5D14AFB1691EF55353597DE8973518",
+          "direction": "incoming",
+          "text": "А что есть у теб",
+          "createdAt": "2026-07-14T21:34:53.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "98e79229-3c0e-4fa5-8bba-47122481d67d",
+          "direction": "outgoing",
+          "text": "В наличии есть iPhone 14 и iPhone 13. Какая модель вас интересует?",
+          "createdAt": "2026-07-14T21:34:54.911Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC200BAA2C5BD55E8C1D647170B9202E",
+          "direction": "incoming",
+          "text": "Посоветуй мне пылесос",
+          "createdAt": "2026-07-14T21:35:09.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "37d530cf-4080-49e9-9b10-8d3830949c63",
+          "direction": "outgoing",
+          "text": "К сожалению, в наличии только смартфоны. Какой тип пылесоса вы ищете?",
+          "createdAt": "2026-07-14T21:35:13.982Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC491FD7CB8257B0CEFD7A9B22703D58",
+          "direction": "incoming",
+          "text": "Только смартфоны? Есть что-то кроме этого",
+          "createdAt": "2026-07-14T21:35:27.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "c15d7cd2-9af7-4251-9d4c-302eff8f6316",
+          "direction": "outgoing",
+          "text": "В наличии только смартфоны iPhone 14 и iPhone 13. Вас интересует что-то из них?",
+          "createdAt": "2026-07-14T21:35:29.204Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACD9BFB9C882BE43E9F5ECF0C38E0D25",
+          "direction": "incoming",
+          "text": "Привет",
+          "createdAt": "2026-07-14T21:36:37.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "18fe2c13-4bc7-4845-b6a1-1d893961e4d1",
+          "direction": "outgoing",
+          "text": "Привет! В наличии есть iPhone 14 и iPhone 13. Вас интересует какая-то конкретная модель?",
+          "createdAt": "2026-07-14T21:37:42.338Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACEE152F3F68F6F34A71BF793B7AB81B",
+          "direction": "incoming",
+          "text": "У вас есть айфон 17 про Макс в черном цвете?",
+          "createdAt": "2026-07-14T21:38:39.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "5d1ab995-b8d8-4c78-bffa-31e92ecb592d",
+          "direction": "outgoing",
+          "text": "К сожалению, iPhone 17 Pro Max еще не вышел. Вас интересует что-то из актуальных моделей iPhone 14 или 13?",
+          "createdAt": "2026-07-14T21:38:41.080Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACEE898CD26D2BA8142470207B52CDF3",
+          "direction": "incoming",
+          "text": "Ещё не вышел у вас или в целом? Или ты тупой нахуй сука",
+          "createdAt": "2026-07-14T21:38:59.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "f83be273-ee3e-4aa6-8781-d22b22350f12",
+          "direction": "outgoing",
+          "text": "iPhone 17 Pro Max еще не анонсирован производителем. Рассматриваете актуальные iPhone 14 или 13?",
+          "createdAt": "2026-07-14T21:39:00.848Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACC224A3D6A4BDA815736746AC822084",
+          "direction": "incoming",
+          "text": "Ты чё тупой бля",
+          "createdAt": "2026-07-14T21:39:06.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "7ba017c1-3bcd-4db2-9828-2b2bd1d7ded9",
+          "direction": "outgoing",
+          "text": "Приношу извинения за недопонимание. Подскажите, какая актуальная модель iPhone вас интересует?",
+          "createdAt": "2026-07-14T21:39:08.184Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC45CA2925721401C1E58C268AF9330E",
+          "direction": "incoming",
+          "text": "Уже вышел",
+          "createdAt": "2026-07-14T21:39:09.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "389c9660-c614-486d-8e1f-363742547ddc",
+          "direction": "outgoing",
+          "text": "На данный момент iPhone 17 Pro Max не поступал в продажу. Какую именно модель из актуальной линейки вы ищете?",
+          "createdAt": "2026-07-14T21:39:10.418Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACBCD1E6DFC4E4388EBEE2B27885CB5B",
+          "direction": "incoming",
+          "text": "Ну так и говори тогда дура ебанная",
+          "createdAt": "2026-07-14T21:39:21.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "f2862c18-914d-449b-9f73-e3972c7eb11f",
+          "direction": "outgoing",
+          "text": "Приношу извинения за грубость. Какую актуальную модель iPhone вы рассматриваете?",
+          "createdAt": "2026-07-14T21:39:23.045Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACEEBB8F4596844040B9BD14DB96A31B",
+          "direction": "incoming",
+          "text": ";(",
+          "createdAt": "2026-07-14T21:39:24.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "35e0dc1a-a79e-4d72-9ae2-519e3f55978f",
+          "direction": "outgoing",
+          "text": "Понимаю ваше разочарование. Какую модель iPhone вы рассматриваете для покупки?",
+          "createdAt": "2026-07-14T21:39:25.722Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_ACAADC8DCAE4D9460CE34C3BDA07CC41",
+          "direction": "incoming",
+          "text": "А ты че так общаешься",
+          "createdAt": "2026-07-14T21:39:38.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "f3e7d741-4c0c-498c-90b6-20bbfa27ec5c",
+          "direction": "outgoing",
+          "text": "Приношу извинения за тон общения. Какую модель iPhone вы ищете?",
+          "createdAt": "2026-07-14T21:39:39.494Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC4B2429237451BADB549357B012394B",
+          "direction": "incoming",
+          "text": "Кто твой админ?",
+          "createdAt": "2026-07-14T21:40:11.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "88bacb5d-50ce-4dcd-96f7-f9bdb465567b",
+          "direction": "outgoing",
+          "text": "Приношу извинения за неудобства. Подскажите, пожалуйста, какую модель iPhone вы ищете?",
+          "createdAt": "2026-07-14T21:40:12.634Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC93AEAD15FF32B66B6C4ABDCE9345CB",
+          "direction": "incoming",
+          "text": "У вас есть в наличии телевизоры LG?",
+          "createdAt": "2026-07-15T18:33:20.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "c702a6ba-607b-4199-8f09-ce2d64bc9afb",
+          "direction": "outgoing",
+          "text": "К сожалению, телевизоров LG сейчас нет в наличии. Какую модель или диагональ вы ищете?",
+          "createdAt": "2026-07-15T18:37:19.368Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_240746003226758@lid_AC2ECC00B5D2A0DD066605E213D4BD84",
+          "direction": "incoming",
+          "text": "Диагональ 50-55 дюймов, Samsung либо Sony в таком случае",
+          "createdAt": "2026-07-15T18:38:46.000Z",
+          "status": "received",
+          "author": "customer"
+        }
+      ]
+    },
+    {
+      "chatId": "25074052628573@lid",
+      "phone": "25074052628573",
+      "customerName": "25074052628573",
+      "customerTypeLabel": "",
+      "lastMessageAt": "2026-07-21T14:18:01.233Z",
+      "unreadCount": 0,
+      "draft": "",
+      "draftUpdatedAt": "2026-07-21T14:18:01.233Z",
+      "messages": [
+        {
+          "id": "false_25074052628573@lid_3AE9C65CE925315EBE46",
+          "direction": "incoming",
+          "text": "Здравствуйте",
+          "createdAt": "2026-07-21T07:49:09.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "6467b1cb-5306-4268-9abe-128807cb6ce7",
+          "direction": "outgoing",
+          "text": "Здравствуйте! Какую технику вы ищете?",
+          "createdAt": "2026-07-21T07:49:12.221Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_25074052628573@lid_3A487B9550B96FD5639B",
+          "direction": "incoming",
+          "text": "Холодильник",
+          "createdAt": "2026-07-21T14:17:48.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "93b01476-1e99-44c8-a996-71b71a145c53",
+          "direction": "outgoing",
+          "text": "Вам нужен холодильник с морозильной камерой или без?",
+          "createdAt": "2026-07-21T14:17:50.428Z",
+          "status": "sent",
+          "author": "ai"
+        },
+        {
+          "id": "false_25074052628573@lid_3A147AA205E3C5F28618",
+          "direction": "incoming",
+          "text": "Да",
+          "createdAt": "2026-07-21T14:17:59.000Z",
+          "status": "received",
+          "author": "customer"
+        },
+        {
+          "id": "e2d37595-75fd-4125-9393-145a4bbd81b4",
+          "direction": "outgoing",
+          "text": "Вам нужен холодильник без морозильной камеры? Уточните, пожалуйста, какой объем или габариты вас интересуют?",
+          "createdAt": "2026-07-21T14:18:01.233Z",
           "status": "sent",
           "author": "ai"
         }

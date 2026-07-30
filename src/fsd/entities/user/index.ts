@@ -11,6 +11,7 @@ export type CrmUser = {
   permissions: string[];
   active: boolean;
   passwordSet?: boolean;
+  moySkladEmployeeHref?: string;
   moySkladRemoval?: {
     status: "deleted" | "archived" | "not_found" | "skipped";
     reason?: string;
@@ -19,6 +20,13 @@ export type CrmUser = {
 
 export type CrmUserUpdate = Omit<CrmUser, "id"> & {
   password?: string;
+};
+
+export type CrmUserCreate = Pick<
+  CrmUser,
+  "name" | "login" | "position" | "salary" | "role" | "branches" | "permissions" | "active"
+> & {
+  password: string;
 };
 
 export const ROLE_LABELS: Record<CrmRole, string> = {

@@ -121,6 +121,7 @@
 }
 
 .templateCard label,
+.field,
 .controls label {
   display: grid;
   gap: 6px;
@@ -133,6 +134,7 @@
 .search input,
 .tierRow input,
 .tierRow select,
+.rowSelect,
 .table input {
   min-height: 44px;
   width: 100%;
@@ -144,6 +146,11 @@
   font-weight: 700;
   padding: 0 12px;
   outline: none;
+}
+
+.folderSelect {
+  font-size: 16px;
+  font-weight: 800;
 }
 
 .templateCard input:focus,
@@ -211,6 +218,50 @@
 
 .controls {
   grid-template-columns: repeat(4, 1fr);
+  overflow: hidden;
+  border-left: 7px solid #13795b;
+  gap: 18px;
+  align-items: end;
+  padding: 22px 28px 24px;
+}
+
+.controls label {
+  min-width: 0;
+}
+
+.controls label > span {
+  display: flex;
+  min-height: 44px;
+  align-items: flex-end;
+  gap: 8px;
+  color: #556173;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.controls input,
+.controls select {
+  min-height: 52px;
+  border-color: rgba(148, 163, 184, 0.34);
+  border-radius: 8px;
+  color: #172033;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.checkLabel {
+  gap: 10px !important;
+}
+
+.controls input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  flex: 0 0 auto;
+  margin: 0 0 2px;
+  accent-color: #13795b;
+  box-shadow: none;
 }
 
 .toolbar {
@@ -241,9 +292,127 @@
   background: transparent;
 }
 
+.compactSelect {
+  position: relative;
+}
+
+.compactSelectButton {
+  width: 100%;
+  min-height: 44px;
+  justify-content: space-between !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: #ffffff !important;
+  color: #182033 !important;
+  text-align: left;
+}
+
+.compactSelectButton span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compactSelectButton b {
+  color: #64748b;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.compactSelectMenu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(760px, calc(100vw - 180px));
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  padding: 10px 0;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 10px;
+  background: #eeeeee;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.2);
+}
+
+.compactSelectSearch {
+  width: calc(100% - 20px);
+  min-height: 38px;
+  margin: 0 10px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #182033;
+  font: inherit;
+  font-weight: 750;
+  padding: 0 10px;
+}
+
+.compactSelectMenu [role="option"] {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100%;
+  min-height: 36px !important;
+  justify-content: flex-start !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #182033 !important;
+  -webkit-text-fill-color: #182033 !important;
+  padding: 0 28px !important;
+  text-align: left;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  font-size: 20px !important;
+  line-height: 1.2 !important;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.compactSelectMenu [role="option"] b {
+  width: 20px;
+  flex: 0 0 20px;
+  color: #182033;
+  -webkit-text-fill-color: #182033;
+  font-size: 20px;
+}
+
+.compactSelectMenu [role="option"] span {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #182033 !important;
+  -webkit-text-fill-color: #182033 !important;
+  overflow: visible;
+  text-overflow: clip;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.compactSelectMenu [role="option"]:hover,
+.compactSelectActive {
+  background: #dbeafe !important;
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+  transform: none !important;
+}
+
+.compactSelectMenu [role="option"]:hover span,
+.compactSelectMenu [role="option"]:hover b,
+.compactSelectActive span,
+.compactSelectActive b {
+  color: #111827 !important;
+  -webkit-text-fill-color: #111827 !important;
+}
+
+.compactSelectEmpty {
+  padding: 12px 10px;
+  color: #64748b;
+  font-weight: 750;
+}
+
 .summary {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 12px;
 }
 
@@ -292,6 +461,9 @@
 }
 
 .table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   color: #64748b;
   font-size: 12px;
   font-weight: 800;
@@ -330,6 +502,27 @@
 
 .skipped {
   background: #fff7f7;
+}
+
+.archived {
+  opacity: 0.58;
+}
+
+.muted {
+  color: #94a3b8;
+  font-weight: 750;
+}
+
+.priceCurrency {
+  display: inline-block;
+  margin-left: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.rowSelect {
+  min-width: 210px;
 }
 
 .pagination {

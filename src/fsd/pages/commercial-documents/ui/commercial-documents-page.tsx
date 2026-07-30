@@ -2,11 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, FileText, Plus, Printer, Search, Trash2 } from "lucide-react";
+import { Download, FileText, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import {
+  createCommercialDemandFromOrder,
   createCommercialPdf,
+  createCommercialProposalLink,
+  createCommercialProposalPdf,
+  getCommercialOrders,
   getCommercialRetailStores,
   getCommercialSession,
   makeCommercialItem,
@@ -14,13 +18,16 @@ import {
   searchCommercialProducts,
   type CommercialCustomer,
   type CommercialItem,
+  type CommercialOrderRow,
   type CommercialPayload,
   type CommercialProduct,
   type CommercialPdfResult,
+  type CommercialShipmentResult,
 } from "../api/commercial-documents-api";
 import styles from "./commercial-documents-page.module.css";
 
 const wholesaleGroup = "оптовые клиенты";
+const organizationsGroup = "организации";
 
 type FormState = Omit<
   CommercialPayload,
@@ -96,6 +103,10 @@ export function CommercialDocumentsPage() {
   const [activeItemId, setActiveItemId] = useState(initial.item.id);
   const [items, setItems] = useState<CommercialItem[]>(initial.items);
   const [result, setResult] = useState<CommercialPdfResult | null>(null);
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [createdStoreHref, setCreatedStoreHref] = useState("");
+  const [shipmentResult, setShipmentResult] = useState<CommercialShipmentResult | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<CommercialOrderRow | null>(null);
 
   const storesQuery = useQuery({ queryKey: ["commercial-retail-stores"], queryFn: getCommercialRetailStores });
   const sessionQuery = useQuery({ queryKey: ["crm-session"], queryFn: getCommercialSession });
@@ -109,6 +120,12 @@ export function CommercialDocumentsPage() {
     queryFn: () => searchCommercialProducts(productSearch, storeHref),
     enabled: productSearch.trim().length >= 2,
   });
+  const currentCustomerHref = form.customerHref || result?.customerHref || "";
+  const ordersQuery = useQuery({
+    queryKey: ["commercial-orders", currentCustomerHref],
+    queryFn: () => getCommercialOrders(currentCustomerHref),
+    enabled: Boolean(currentCustomerHref),
+  });
 
   useEffect(() => {
     if (storesQuery.error) showToast({ tone: "error", title: "Не удалось загрузить точки продаж", description: getErrorText(storesQuery.error) });
@@ -118,8 +135,17 @@ export function CommercialDocumentsPage() {
     mutationFn: createCommercialPdf,
     onSuccess: (data) => {
       setResult(data);
+      setShipmentResult(null);
+      setCreatedStoreHref(storeHref);
+      setOrderModalOpen(true);
+      setSelectedOrder(null);
+      void ordersQuery.refetch();
       downloadBlob(data.blob, data.fileName);
-      showToast({ tone: "success", title: "PDF-счет сформирован", description: data.documentName || data.fileName });
+      showToast({
+        tone: "success",
+        title: data.documentType === "customerorder" ? "PDF и заказ созданы" : "PDF-счет сформирован",
+        description: data.documentName || data.fileName,
+      });
       setForm(initialForm);
       const next = initialItems();
       setItems(next.items);
@@ -129,12 +155,54 @@ export function CommercialDocumentsPage() {
     },
     onError: (error) => showToast({ tone: "error", title: "Не удалось создать счет", description: getErrorText(error) }),
   });
+  const shipmentMutation = useMutation({
+    mutationFn: () => createCommercialDemandFromOrder(selectedOrder?.id || "", createdStoreHref || storeHref),
+    onSuccess: (data) => {
+      setShipmentResult(data);
+      showToast({ tone: "success", title: "Отгрузка создана", description: data.documentName || "Документ создан в МойСклад" });
+      void ordersQuery.refetch();
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось создать отгрузку", description: getErrorText(error) }),
+  });
+  const proposalMutation = useMutation({
+    mutationFn: createCommercialProposalPdf,
+    onSuccess: (data) => {
+      downloadBlob(data.blob, data.fileName);
+      showToast({ tone: "success", title: "Коммерческое предложение готово", description: data.fileName });
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось создать коммерческое предложение", description: getErrorText(error) }),
+  });
+  const proposalLinkMutation = useMutation({
+    mutationFn: createCommercialProposalLink,
+    onSuccess: async (data) => {
+      const fullUrl = new URL(data.url, window.location.origin).toString();
+      try {
+        await navigator.clipboard.writeText(fullUrl);
+      } catch {}
+      window.open(fullUrl, "_blank", "noopener,noreferrer");
+      showToast({
+        tone: "success",
+        title: "Веб-КП создано",
+        description: `Ссылка действует до ${new Intl.DateTimeFormat("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(data.expiresAt))}`,
+      });
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось создать веб-КП", description: getErrorText(error) }),
+  });
 
   const total = items.reduce((sum, item) => sum + Number(item.productPrice || 0) * Number(item.quantity || 0), 0);
   const activeItem = items.find((item) => item.id === activeItemId) ?? items[0];
   const stores = storesQuery.data ?? [];
 
-  const customerGroups = useMemo(() => (form.wholesale ? [wholesaleGroup] : []), [form.wholesale]);
+  const customerGroups = useMemo(() => {
+    const groups = form.customerMode === "new" ? [organizationsGroup] : [];
+    if (form.wholesale) groups.push(wholesaleGroup);
+    return groups;
+  }, [form.customerMode, form.wholesale]);
 
   const patchItem = (id: string, patch: Partial<CommercialItem>) => {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
@@ -193,6 +261,8 @@ export function CommercialDocumentsPage() {
       wholesale: Boolean(customer.groups?.includes(wholesaleGroup)),
     });
     setCustomerSearch(customer.name);
+    setSelectedOrder(null);
+    setShipmentResult(null);
   };
 
   const submit = () => {
@@ -204,7 +274,39 @@ export function CommercialDocumentsPage() {
     submitMutation.mutate({
       ...form,
       customerCorrAccount: "",
-      documentType: "demand",
+      documentType: "customerorder",
+      storeHref,
+      employeeName: sessionQuery.data?.user?.name || "",
+      branchName: "",
+      customerGroups,
+      items: payloadItems,
+    });
+  };
+
+  const printProposal = () => {
+    const payloadItems = items.filter((item) => item.assortmentHref && item.quantity > 0);
+    if (!payloadItems.length) return showToast({ tone: "error", title: "Добавьте хотя бы один товар для предложения" });
+
+    proposalMutation.mutate({
+      ...form,
+      customerCorrAccount: "",
+      documentType: "customerorder",
+      storeHref,
+      employeeName: sessionQuery.data?.user?.name || "",
+      branchName: "",
+      customerGroups,
+      items: payloadItems,
+    });
+  };
+
+  const createProposalLink = () => {
+    const payloadItems = items.filter((item) => item.assortmentHref && item.quantity > 0);
+    if (!payloadItems.length) return showToast({ tone: "error", title: "Добавьте хотя бы один товар для предложения" });
+
+    proposalLinkMutation.mutate({
+      ...form,
+      customerCorrAccount: "",
+      documentType: "customerorder",
       storeHref,
       employeeName: sessionQuery.data?.user?.name || "",
       branchName: "",
@@ -219,9 +321,10 @@ export function CommercialDocumentsPage() {
         <div>
           <p>Юридические лица</p>
           <h1>Счета юрлицам</h1>
-          <span>Создание PDF-счета и отгрузки в МойСклад для существующего или нового контрагента.</span>
+          <span>Создание PDF-счета и заказа покупателя в МойСклад для существующего или нового контрагента.</span>
         </div>
         <div className={styles.headerActions}>
+          {currentCustomerHref ? <button type="button" onClick={() => setOrderModalOpen(true)}><FileText size={17} /> Заказы / отгрузки</button> : null}
           {result ? <button type="button" onClick={() => printPdf(result.blob, result.fileName)}><Printer size={17} /> Печать</button> : null}
           {result ? <button type="button" onClick={() => downloadBlob(result.blob, result.fileName)}><Download size={17} /> PDF</button> : null}
           {result?.documentWebUrl ? <a href={result.documentWebUrl} target="_blank" rel="noreferrer">МойСклад</a> : null}
@@ -278,20 +381,20 @@ export function CommercialDocumentsPage() {
                 <article key={item.id} className={item.id === activeItemId ? styles.selectedItem : ""} onClick={() => setActiveItemId(item.id)}>
                   <label className={styles.productCell}>
                     <span>Товар {index + 1}</span>
-                    <input value={item.productName} onChange={(event) => patchItem(item.id, { productName: event.target.value, assortmentHref: "" })} />
                     <div className={styles.inlineSearch}>
                       <Search size={16} />
                       <input
-                        value={item.id === activeItemId ? productSearch : ""}
+                        value={item.id === activeItemId ? productSearch : item.productName}
                         onFocus={() => {
                           setActiveItemId(item.id);
-                          setProductSearch("");
+                          setProductSearch(item.productName || "");
                         }}
                         onChange={(event) => {
                           setActiveItemId(item.id);
+                          patchItem(item.id, { productName: event.target.value, assortmentHref: "" });
                           setProductSearch(event.target.value);
                         }}
-                        placeholder="Поиск товара в этой строке"
+                        placeholder="Название, код или артикул товара"
                       />
                     </div>
                     {item.id === activeItemId && productSearch.trim().length >= 2 ? (
@@ -334,10 +437,107 @@ export function CommercialDocumentsPage() {
           <label><span>Точка продаж</span><select value={storeHref} onChange={(event) => setStoreHref(event.target.value)}><option value="">Без точки продаж</option>{stores.map((store) => <option key={store.id} value={store.storeHref}>{store.name}</option>)}</select></label>
           <button type="button" onClick={submit} disabled={submitMutation.isPending}>
             <FileText size={18} />
-            {submitMutation.isPending ? "Создаю..." : "Создать PDF и отгрузку"}
+            {submitMutation.isPending ? "Создаю..." : "Создать PDF и заказ"}
           </button>
+          <button type="button" onClick={printProposal} disabled={proposalMutation.isPending}>
+            <Printer size={18} />
+            {proposalMutation.isPending ? "Собираю КП..." : "Коммерческое предложение"}
+          </button>
+          <button type="button" onClick={createProposalLink} disabled={proposalLinkMutation.isPending}>
+            <FileText size={18} />
+            {proposalLinkMutation.isPending ? "Создаю веб-КП..." : "Веб-КП на 12 часов"}
+          </button>
+          {currentCustomerHref ? (
+            <div className={styles.orderBox}>
+              <p>Заказы покупателя</p>
+              <strong>{ordersQuery.data?.length || 0}</strong>
+              <span>Показываю все заказы выбранного контрагента из МойСклад.</span>
+              {result?.documentName ? <span>Последний созданный: {result.documentName}</span> : null}
+              <button type="button" onClick={() => setOrderModalOpen(true)}>
+                <FileText size={18} />
+                Открыть список
+              </button>
+            </div>
+          ) : null}
         </aside>
       </section>
+
+      {orderModalOpen && currentCustomerHref ? (
+        <div className={styles.modalBackdrop} onClick={() => setOrderModalOpen(false)} role="presentation">
+          <div className={styles.modalCard} onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+            <div className={styles.modalHead}>
+              <div>
+                <p>Заказы покупателя</p>
+                <h2>{form.customerName || result?.documentName || "Контрагент"}</h2>
+                <span>Выбери оплаченный заказ и создай отгрузку прямо из него.</span>
+              </div>
+              <button type="button" className={styles.modalClose} onClick={() => setOrderModalOpen(false)} aria-label="Закрыть">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className={styles.ordersTable}>
+              <div className={styles.ordersHead}>
+                <span>Заказ</span>
+                <span>Дата</span>
+                <span>Сумма</span>
+                <span>Оплата</span>
+                <span>Статус</span>
+                <span>Действия</span>
+              </div>
+              {(ordersQuery.data ?? []).map((order) => {
+                const canCreateDemand = order.unpaid <= 0;
+                const isActive = selectedOrder?.id === order.id;
+                return (
+                  <div key={order.id} className={`${styles.ordersRow} ${isActive ? styles.ordersRowActive : ""}`}>
+                    <div>
+                      <strong>{order.name || "Заказ"}</strong>
+                      <span>{order.organizationName || "Без организации"}</span>
+                    </div>
+                    <span>{order.moment ? new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(order.moment)) : "-"}</span>
+                    <span>{money(order.sum)}</span>
+                    <span>{order.unpaid <= 0 ? `Оплачен: ${money(order.paid)}` : `Остаток: ${money(order.unpaid)}`}</span>
+                    <span>{order.stateName || (order.unpaid <= 0 ? "Оплачен" : "Ждет оплаты")}</span>
+                    <div className={styles.orderRowActions}>
+                      {order.webUrl ? <a href={order.webUrl} target="_blank" rel="noreferrer">Открыть</a> : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrder(order);
+                          setShipmentResult(null);
+                        }}
+                        disabled={!canCreateDemand}
+                      >
+                        {canCreateDemand ? "Выбрать" : "Не оплачен"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {ordersQuery.isLoading ? <p className={styles.ordersEmpty}>Загружаю заказы...</p> : null}
+              {!ordersQuery.isLoading && !(ordersQuery.data ?? []).length ? <p className={styles.ordersEmpty}>По этому контрагенту заказов пока нет.</p> : null}
+            </div>
+
+            <div className={styles.modalActions}>
+              {result ? <button type="button" onClick={() => printPdf(result.blob, result.fileName)}><Printer size={17} /> Печать PDF</button> : null}
+              {result ? <button type="button" onClick={() => downloadBlob(result.blob, result.fileName)}><Download size={17} /> Скачать PDF</button> : null}
+              {selectedOrder?.webUrl ? <a href={selectedOrder.webUrl} target="_blank" rel="noreferrer">Открыть заказ</a> : null}
+              <button type="button" onClick={() => shipmentMutation.mutate()} disabled={shipmentMutation.isPending || Boolean(shipmentResult) || !selectedOrder || selectedOrder.unpaid > 0}>
+                <FileText size={17} />
+                {shipmentMutation.isPending ? "Создаю отгрузку..." : shipmentResult ? "Отгрузка создана" : "Создать отгрузку из заказа"}
+              </button>
+            </div>
+
+            {shipmentResult ? (
+              <div className={styles.modalSuccess}>
+                <strong>{shipmentResult.documentName || "Отгрузка готова"}</strong>
+                <span>Отгрузка создана из заказа покупателя.</span>
+                {shipmentResult.documentWebUrl ? <a href={shipmentResult.documentWebUrl} target="_blank" rel="noreferrer">Открыть отгрузку</a> : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

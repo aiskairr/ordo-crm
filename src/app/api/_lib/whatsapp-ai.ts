@@ -44,6 +44,7 @@ type MoySkladAiProduct = {
   price: number;
   categoryName: string;
   categoryPath: string;
+  stock: number | null;
 };
 
 const WHATSAPP_PRODUCT_STOP_WORDS = new Set([
@@ -92,6 +93,17 @@ const WHATSAPP_PRODUCT_STOP_WORDS = new Set([
   "эти",
 ]);
 
+const WHATSAPP_SEARCH_SYNONYMS: Record<string, string[]> = {
+  бритва: ["электробритва", "брит", "триммер"],
+  бритвы: ["электробритва", "брит", "триммер"],
+  электробритва: ["бритва", "триммер"],
+  триммер: ["электробритва", "бритва", "машинка"],
+  машинка: ["триммер", "электробритва"],
+  фен: ["фен", "сушка"],
+  пылесос: ["пылесос", "робот пылесос"],
+  холодильник: ["холодильник", "морозильник"],
+};
+
 const dataDir = process.env.ORDO_DATA_DIR || path.join(process.cwd(), ".ordo-data");
 const dataFile = path.join(dataDir, "whatsapp-ai.json");
 
@@ -105,6 +117,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asString(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+
+function asBoolean(value: unknown) {
+  return value === true || value === "true" || value === 1 || value === "1";
 }
 
 function digits(value: unknown) {
@@ -149,7 +165,7 @@ export function phoneFromChatId(chatId: string) {
 }
 
 export function getWahaBackendUrl() {
-  return String(process.env.WAHA_BACKEND_URL || "http://127.0.0.1:3300")
+  return String(process.env.WAHA_BACKEND_URL || "http://127.0.0.1:3001")
     .trim()
     .replace(/\/+$/, "");
 }
@@ -222,27 +238,80 @@ export function upsertConversation(
 
 export function parseIncomingWhatsappWebhook(payload: unknown) {
   const root = asRecord(payload);
-  const event = asString(root.event || root.eventName || root.type || root.trigger);
+  const event = asString(root.event || root.eventName || root.type || root.trigger).trim();
   const message = asRecord(root.message || root.payload || root.data || root.body);
-  const text =
-    asString(message.text) ||
-    asString(message.body) ||
-    asString(asRecord(message.body).text) ||
-    asString(root.text) ||
-    asString(root.body) ||
-    asString(asRecord(root.content).text);
-  const chatId =
-    normalizeChatId(message.chatId || message.from || message.author || root.chatId || root.from) ||
-    normalizeChatId(root.id);
-  const fromMeValue = message.fromMe ?? root.fromMe ?? root.outbound;
-  const fromMe = fromMeValue === true || fromMeValue === "true";
+  const raw = asRecord(message._data || asRecord(root.payload)._data || asRecord(root.data)._data);
+  const messageId = asRecord(message.id);
+  const rawId = asRecord(raw.id);
+  const messageKey = asRecord(message.key);
+  const rawKey = asRecord(raw.key);
+  const messageFrom = asRecord(message.from);
+  const rawFrom = asRecord(raw.from);
+  const content = asRecord(root.content);
+
+  const textCandidates = [
+    asString(message.text),
+    asString(raw.text),
+    asString(message.body),
+    asString(raw.body),
+    asString(asRecord(message.body).text),
+    asString(asRecord(raw.body).text),
+    asString(raw.caption),
+    asString(root.text),
+    asString(root.body),
+    asString(content.text),
+  ].map((value) => value.trim()).filter(Boolean);
+  const text = textCandidates[0] || "";
+
+  const chatIdCandidates = [
+    message.chatId,
+    raw.chatId,
+    message.from,
+    raw.from,
+    message.author,
+    raw.author,
+    root.chatId,
+    root.from,
+    messageId.remote,
+    rawId.remote,
+    messageKey.remote,
+    rawKey.remote,
+    messageFrom._serialized,
+    rawFrom._serialized,
+  ];
+  const chatId = chatIdCandidates
+    .map((value) => normalizeChatId(value))
+    .find(Boolean) || "";
+
+  const fromMe = [
+    message.fromMe,
+    raw.fromMe,
+    messageId.fromMe,
+    rawId.fromMe,
+    messageKey.fromMe,
+    rawKey.fromMe,
+    root.fromMe,
+    root.outbound,
+  ].some(asBoolean);
+
   const customerName =
     asString(message.pushName) ||
+    asString(raw.pushName) ||
     asString(message.notifyName) ||
+    asString(raw.notifyName) ||
     asString(message.senderName) ||
+    asString(raw.senderName) ||
+    asString(asRecord(raw.sender).pushName) ||
+    asString(asRecord(raw.sender).name) ||
     asString(root.pushName) ||
     "";
-  const createdAtRaw = message.timestamp || root.timestamp || Date.now();
+
+  const createdAtRaw =
+    message.timestamp ||
+    raw.timestamp ||
+    raw.t ||
+    root.timestamp ||
+    Date.now();
   const createdAt =
     typeof createdAtRaw === "number"
       ? new Date(createdAtRaw > 1e12 ? createdAtRaw : createdAtRaw * 1000).toISOString()
@@ -258,7 +327,15 @@ export function parseIncomingWhatsappWebhook(payload: unknown) {
   }
 
   return {
-    id: asString(message.id) || asString(asRecord(message.key).id) || asString(root.id) || `${chatId}:${createdAt}:${text}`,
+    id:
+      asString(messageId._serialized) ||
+      asString(rawId._serialized) ||
+      asString(message.id) ||
+      asString(raw.id) ||
+      asString(messageKey.id) ||
+      asString(rawKey.id) ||
+      asString(root.id) ||
+      `${chatId}:${createdAt}:${text}`,
     chatId,
     phone: phoneFromChatId(chatId),
     customerName,
@@ -417,7 +494,7 @@ export async function generateGeminiWhatsappReply(input: {
   const productContext = (input.products ?? [])
     .slice(0, 6)
     .map((product, index) =>
-      `${index + 1}. ${product.name}${product.categoryName ? ` | категория: ${product.categoryName}` : ""}${product.code ? ` | код: ${product.code}` : ""}${product.article ? ` | артикул: ${product.article}` : ""}${product.barcode ? ` | штрихкод: ${product.barcode}` : ""}${Number.isFinite(product.price) && product.price > 0 ? ` | цена: ${product.price.toLocaleString("ru-RU")} сом` : ""}`,
+      `${index + 1}. ${product.name}${product.categoryName ? ` | категория: ${product.categoryName}` : ""}${product.code ? ` | код: ${product.code}` : ""}${product.article ? ` | артикул: ${product.article}` : ""}${product.barcode ? ` | штрихкод: ${product.barcode}` : ""}${Number.isFinite(product.price) && product.price > 0 ? ` | цена: ${product.price.toLocaleString("ru-RU")} сом` : ""}${product.stock === null ? " | остаток: неизвестно" : ` | остаток: ${product.stock}`}`,
     )
     .join("\n");
 
@@ -430,6 +507,9 @@ export async function generateGeminiWhatsappReply(input: {
     "Если информации достаточно и есть товары, предложи 1-3 самых подходящих варианта.",
     "Если в найденных товарах есть разные категории, не своди ответ к одной категории без причины.",
     "Если товаров нет, честно скажи это и коротко уточни запрос.",
+    "Если остаток товара больше 0, считай что товар в наличии.",
+    "Если остаток товара равен 0, можешь сказать что по текущему складу остаток нулевой.",
+    "Если остаток неизвестен, не имеешь права писать, что товара нет в наличии.",
     "Опирайся только на товары из МойСклад и на историю ниже.",
     "Не выдумывай наличие, цену, скидки, доставку, рассрочку или характеристики.",
     "Ответ максимум 2 короткие фразы или 1 короткий список.",
@@ -493,6 +573,10 @@ function getMoySkladToken() {
   return String(process.env.MOYSKLAD_TOKEN || "").trim();
 }
 
+function getMoySkladStoreHref() {
+  return String(process.env.MOYSKLAD_STORE_HREF || "").trim();
+}
+
 function getMoySkladProductSearchQueries(search: string) {
   const query = String(search || "").trim();
   const queries = [query];
@@ -522,6 +606,28 @@ function getProductCategoryName(row: Record<string, unknown>) {
 
 function getProductCategoryPath(row: Record<string, unknown>) {
   return asString(asRecord(row.productFolder).pathName);
+}
+
+async function getWhatsappProductStock(token: string, productHref: string, storeHref: string) {
+  if (!token || !productHref) return null;
+
+  const url = new URL(`${getMoySkladBaseUrl()}/report/stock/all`);
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("filter", storeHref ? `store=${storeHref};product=${productHref}` : `product=${productHref}`);
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json;charset=utf-8",
+    },
+    cache: "no-store",
+  }).catch(() => null);
+
+  if (!response?.ok) return null;
+  const payload = await response.json().catch(() => ({}));
+  const rows = Array.isArray(asRecord(payload).rows) ? (asRecord(payload).rows as unknown[]) : [];
+  const firstRow = asRecord(rows[0]);
+  const stock = asNumber(firstRow.stock);
+  return Number.isFinite(stock) ? stock : 0;
 }
 
 function scoreWhatsappProductMatch(product: MoySkladAiProduct, query: string) {
@@ -574,6 +680,18 @@ function extractSearchTerms(value: string) {
     .filter((term) => !WHATSAPP_PRODUCT_STOP_WORDS.has(term));
 }
 
+function expandWhatsappSearchTerms(terms: string[]) {
+  const expanded = new Set<string>();
+  for (const term of terms) {
+    if (!term) continue;
+    expanded.add(term);
+    for (const synonym of WHATSAPP_SEARCH_SYNONYMS[term] || []) {
+      expanded.add(synonym);
+    }
+  }
+  return [...expanded];
+}
+
 export function buildWhatsappProductSearchQuery(input: {
   latestMessage?: string;
   messages?: StoredWhatsappMessage[];
@@ -589,8 +707,9 @@ export function buildWhatsappProductSearchQuery(input: {
 
   for (const candidate of candidates) {
     const terms = extractSearchTerms(candidate);
-    if (terms.length >= 2) return terms.slice(0, 6).join(" ");
-    if (terms.length === 1 && terms[0].length >= 3) return terms[0];
+    const expandedTerms = expandWhatsappSearchTerms(terms);
+    if (expandedTerms.length >= 2) return expandedTerms.slice(0, 6).join(" ");
+    if (expandedTerms.length === 1 && expandedTerms[0].length >= 3) return expandedTerms[0];
   }
 
   return String(input.latestMessage || "").trim();
@@ -598,10 +717,11 @@ export function buildWhatsappProductSearchQuery(input: {
 
 export async function findMoySkladProductsForWhatsapp(query: string) {
   const token = getMoySkladToken();
+  const storeHref = getMoySkladStoreHref();
   const trimmed = String(query || "").trim();
   if (!token || trimmed.length < 2) return [];
 
-  const searchTerms = extractSearchTerms(trimmed);
+  const searchTerms = expandWhatsappSearchTerms(extractSearchTerms(trimmed));
   const normalizedQuery = searchTerms.length ? searchTerms.slice(0, 6).join(" ") : trimmed;
   const relaxedQuery = searchTerms.length > 1 ? searchTerms.slice(0, 2).join(" ") : normalizedQuery;
   const queryVariants = [...new Set([normalizedQuery, relaxedQuery, trimmed].filter((value) => value.trim().length >= 2))];
@@ -634,8 +754,7 @@ export async function findMoySkladProductsForWhatsapp(query: string) {
     }
   }
 
-  const sortedProducts = rows
-    .map((row) => ({
+  const mappedProducts = await Promise.all(rows.map(async (row) => ({
       name: asString(row.name),
       code: asString(row.code),
       article: asString(row.article),
@@ -643,7 +762,10 @@ export async function findMoySkladProductsForWhatsapp(query: string) {
       price: getProductSalePrice(row),
       categoryName: getProductCategoryName(row),
       categoryPath: getProductCategoryPath(row),
-    }))
+      stock: await getWhatsappProductStock(token, asString(asRecord(row.meta).href), storeHref),
+    })));
+
+  const sortedProducts = mappedProducts
     .sort((left, right) => scoreWhatsappProductMatch(right, normalizedQuery) - scoreWhatsappProductMatch(left, normalizedQuery))
     .slice(0, 20);
 
@@ -663,8 +785,15 @@ export async function sendWahaTextFromServer(input: {
   chatId?: string;
   text: string;
 }) {
-  const baseUrl = String(input.baseUrl || getWahaBackendUrl()).trim().replace(/\/+$/, "");
-  const apiKey = String(input.apiKey || getWahaBackendApiKey()).trim();
+  const envBaseUrl = getWahaBackendUrl();
+  const envApiKey = getWahaBackendApiKey();
+  const rawBaseUrl = String(input.baseUrl || "").trim().replace(/\/+$/, "");
+  const rawApiKey = String(input.apiKey || "").trim();
+  const baseUrl =
+    !rawBaseUrl || rawBaseUrl === "http://127.0.0.1:3300" || rawBaseUrl === "http://localhost:3300"
+      ? envBaseUrl
+      : rawBaseUrl;
+  const apiKey = !rawApiKey || rawApiKey === "change-me" ? envApiKey : rawApiKey;
   const session = String(input.session || getWahaSessionName()).trim();
   if (!baseUrl || !apiKey) {
     throw new Error("Заполните WAHA URL и API key.");

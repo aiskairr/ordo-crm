@@ -23,10 +23,16 @@ export const dynamic = "force-dynamic";
 
 const debugDir = path.join(process.cwd(), ".ordo-data");
 const debugFile = path.join(debugDir, "whatsapp-last-webhook.json");
+const debugMessageFile = path.join(debugDir, "whatsapp-last-message-webhook.json");
 
 async function writeWebhookDebug(payload: unknown) {
   await mkdir(debugDir, { recursive: true });
   await writeFile(debugFile, JSON.stringify(payload, null, 2), "utf8");
+}
+
+async function writeWebhookMessageDebug(payload: unknown) {
+  await mkdir(debugDir, { recursive: true });
+  await writeFile(debugMessageFile, JSON.stringify(payload, null, 2), "utf8");
 }
 
 async function readWebhookDebug() {
@@ -96,6 +102,14 @@ export async function POST(request: NextRequest) {
     skipped: !incoming,
     skipReason: incoming ? "" : detectSkipReason(payload),
   });
+
+  if (incoming) {
+    await writeWebhookMessageDebug({
+      receivedAt: new Date().toISOString(),
+      raw: payload,
+      parsed: incoming,
+    });
+  }
 
   if (!incoming) {
     return NextResponse.json({ ok: true, skipped: true });

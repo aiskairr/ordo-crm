@@ -5,6 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  authenticateSuperAdmin,
+  createSuperAdminSessionToken,
+  SUPER_ADMIN_SESSION_COOKIE,
+  SUPER_ADMIN_SESSION_MAX_AGE_SECONDS,
+  SuperAdminConfigurationError,
+  verifySuperAdminSessionToken,
+} from "../_lib/super-admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -139,16 +147,25 @@ type LocalOrder = {
 };
 
 const CUSTOMS_HISTORY_TABLE = "customs_calculator_history";
+const COMMERCIAL_PROPOSALS_TABLE = "commercial_proposals";
 const LEGACY_BACKEND_URL = String(process.env.LEGACY_BACKEND_URL || "").trim().replace(/\/$/, "");
+const commercialProposalMemoryStore = new Map<string, JsonRecord>();
 
 type PaymentOption = {
   id: string;
   href?: string;
   name: string;
+  archived?: boolean;
   provider?: string;
   months?: number;
   rate: number;
   comment: string;
+};
+
+type CustomEntityOption = {
+  id: string;
+  href: string;
+  name: string;
 };
 
 type RetailStoreOption = {
@@ -227,8 +244,10 @@ const RECONCILIATION_LIST_CACHE_TTL_MS = 120_000;
 const RECONCILIATION_DETAILS_CACHE_TTL_MS = 120_000;
 const RECONCILIATION_BATCH_SIZE = 100;
 const PRODUCT_STOCK_CACHE_TTL_MS = 20_000;
+const SALES_REPORT_CACHE_TTL_MS = 60_000;
 
 const productStockCache = new Map<string, { value: number; createdAt: number }>();
+const salesReportCache = new Map<string, { value: { rows: Array<Record<string, unknown>>; canViewProfit: boolean; totals?: JsonRecord; dateFrom?: string; dateTo?: string }; createdAt: number }>();
 
 type ReconciliationDocument = ReturnType<typeof mapMoySkladReportDocument>;
 type ReconciliationDebtorAggregate = {
@@ -402,6 +421,7 @@ function shouldUseLegacyBackend(request: NextRequest, parts: string[]) {
     "retail-fiscal-status",
     "retail-fiscalize",
     "payment-types",
+    "sales-channels",
     "products",
     "customers",
     "calculate",
@@ -415,6 +435,7 @@ function shouldUseLegacyBackend(request: NextRequest, parts: string[]) {
     "reconciliation",
     "payroll",
     "whatsapp",
+    "super-admin",
     "customs-calculator",
     "accounting",
     "commercial-documents",
@@ -507,6 +528,10 @@ function toMoySkladPrice(value: number) {
   return Math.round(value * 100);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function meta(href: string, type: string) {
   return { meta: { href, type, mediaType: "application/json" } };
 }
@@ -582,18 +607,30 @@ function getIdFromHref(href: string) {
 }
 
 async function moyskladFetch(url: string, init: RequestInit = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
-  } catch (caught) {
-    if (caught instanceof DOMException && caught.name === "AbortError") {
-      throw new Response("МойСклад слишком долго отвечает. Попробуйте еще раз.", { status: 504 });
+  const method = String(init.method || "GET").toUpperCase();
+  const retryable = method === "GET" || method === "HEAD";
+
+  for (let attempt = 0; attempt < (retryable ? 4 : 1); attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+      if (response.status !== 429 || !retryable || attempt === 3) {
+        return response;
+      }
+      const retryAfter = Number(response.headers.get("retry-after"));
+      await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 450 * (attempt + 1));
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") {
+        throw new Response("МойСклад слишком долго отвечает. Попробуйте еще раз.", { status: 504 });
+      }
+      throw new Response("Не удалось подключиться к МойСклад.", { status: 502 });
+    } finally {
+      clearTimeout(timeout);
     }
-    throw new Response("Не удалось подключиться к МойСклад.", { status: 502 });
-  } finally {
-    clearTimeout(timeout);
   }
+
+  throw new Response("МойСклад временно ограничил количество запросов. Попробуйте еще раз.", { status: 429 });
 }
 
 async function body(request: NextRequest) {
@@ -746,6 +783,7 @@ function legacySessionUser(user: ReturnType<typeof getLegacyCrmUsers>[number]) {
     permissions: userPermissions,
     active: true,
     passwordSet: true,
+    moySkladEmployeeHref: "",
   };
 }
 
@@ -762,6 +800,7 @@ function sanitizeSupabaseUser(row: JsonRecord) {
     permissions: normalizeCrmPermissions(role, row.permissions),
     active: row.active !== false,
     passwordSet: Boolean(row.password_hash),
+    moySkladEmployeeHref: asString(row.moysklad_employee_href),
   };
 }
 
@@ -846,7 +885,7 @@ function sanitizeManagedCrmUser(row: JsonRecord) {
 async function getSupabaseCrmUserById(id: string) {
   const rows = await supabaseGet("/rest/v1/crm_users", {
     id: `eq.${id}`,
-    select: "id,login,name,position,salary,role,branches,permissions,active,password_hash,created_at,updated_at",
+    select: "id,login,name,position,salary,role,branches,permissions,active,password_hash,moysklad_employee_href,created_at,updated_at",
     limit: "1",
   }) as JsonRecord[];
   return rows[0] || null;
@@ -861,22 +900,34 @@ async function getSupabaseCrmUserByLogin(login: string) {
   return rows[0] || null;
 }
 
-async function removeMoySkladEmployeeForCrmUser(user: { name: string }) {
-  const entityId = String(process.env.MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID || "").trim();
-  if (!entityId) {
-    return { status: "skipped", reason: "MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID не задан." };
+async function removeMoySkladEmployeeForCrmUser(user: { name: string; moySkladEmployeeHref?: string }) {
+  let href = asString(user.moySkladEmployeeHref);
+  let token = "";
+
+  if (href) {
+    const configs = getMoySkladEmployeeEntityConfigs();
+    const config = configs.find((item) => href.includes(`/entity/customentity/${item.entityId}/`))
+      ?? configs.find((item) => item.key === "default")
+      ?? configs[0];
+    token = config?.token || "";
+    if (!token) return { status: "skipped", reason: "Не найден токен МойСклад для связанного сотрудника." };
+  } else {
+    const entityId = String(process.env.MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID || "").trim();
+    if (!entityId) {
+      return { status: "skipped", reason: "MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID не задан." };
+    }
+
+    const remoteEmployees = await getMoySkladCustomEntityOptions(entityId, []);
+    const normalizedName = normalizeEmployeeKey(user.name);
+    const matches = remoteEmployees.filter((employee) => normalizeEmployeeKey(employee.name) === normalizedName && employee.href);
+    if (!matches.length) return { status: "not_found" };
+    if (matches.length > 1) {
+      throw new Response("В МойСклад найдено несколько сотрудников с таким именем.", { status: 409 });
+    }
+    href = asString(matches[0].href);
+    token = getMoySkladToken();
   }
 
-  const remoteEmployees = await getMoySkladCustomEntityOptions(entityId, []);
-  const normalizedName = normalizeEmployeeKey(user.name);
-  const matches = remoteEmployees.filter((employee) => normalizeEmployeeKey(employee.name) === normalizedName && employee.href);
-  if (!matches.length) return { status: "not_found" };
-  if (matches.length > 1) {
-    throw new Response("В МойСклад найдено несколько сотрудников с таким именем.", { status: 409 });
-  }
-
-  const href = asString(matches[0].href);
-  const token = getMoySkladToken();
   const deletionResponse = await moyskladFetch(href, {
     method: "DELETE",
     headers: {
@@ -918,78 +969,63 @@ async function removeMoySkladEmployeeForCrmUser(user: { name: string }) {
   return { status: "skipped", reason: getMoySkladError(archivePayload, "Не удалось удалить или архивировать сотрудника в МойСклад.") };
 }
 
-async function syncMoySkladEmployeesToCrm(data: AppData) {
-  const entityId = String(process.env.MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID || "").trim();
-  if (!entityId) return false;
-
-  if (isSupabaseCrmEnabled()) {
-    return syncMoySkladEmployeesToSupabaseCrm();
+async function syncMoySkladEmployeesToSupabaseCrm() {
+  if (!isSupabaseCrmEnabled()) {
+    throw new Response("Для синхронизации настройте SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY.", { status: 503 });
   }
 
-  const remoteEmployees = await getMoySkladCustomEntityOptions(entityId, []).catch(() => []);
-  const existingNames = new Map(data.users.map((user) => [user.name.trim().toLocaleLowerCase("ru-RU"), user]));
-  const usedLogins = new Set(data.users.map((user) => user.login));
-  let changed = false;
+  const remoteEmployees = await getAllMoySkladEmployeesRemote({ includeDeleted: true });
+
+  const currentRows = await supabaseGet("/rest/v1/crm_users", {
+    select: "id,login,name,branches,active,moysklad_employee_href",
+    order: "name.asc",
+  }) as JsonRecord[];
+  const existingByName = new Map(currentRows.map((row) => [normalizeEmployeeKey(row.name), row]));
+  const existingByHref = new Map(
+    currentRows
+      .filter((row) => asString(row.moysklad_employee_href))
+      .map((row) => [asString(row.moysklad_employee_href), row]),
+  );
+  const existingLogins = new Set(currentRows.map((row) => asString(row.login).trim().toLowerCase()).filter(Boolean));
+  const payload: JsonRecord[] = [];
+  const linkedIds: string[] = [];
+  const deactivatedIds: string[] = [];
 
   for (const employee of remoteEmployees) {
     const name = employee.name.trim();
     if (!name) continue;
-    const key = name.toLocaleLowerCase("ru-RU");
-    const existing = existingNames.get(key);
-    if (existing) {
-      if (!existing.active) {
-        existing.active = true;
-        changed = true;
+    const employeeHref = asString(employee.href);
+    const existing = existingByHref.get(employeeHref) ?? existingByName.get(normalizeEmployeeKey(name));
+
+    if (employee.deleted) {
+      if (existing && existing.active !== false) {
+        const id = asString(existing.id);
+        await supabaseFetch(`/rest/v1/crm_users?id=eq.${encodeURIComponent(id)}&select=id`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ active: false }),
+        });
+        deactivatedIds.push(id);
       }
       continue;
     }
-    data.users.push({
-      id: getIdFromHref(employee.href || "") || randomUUID(),
-      name,
-      login: makeEmployeeLogin(name, usedLogins),
-      position: "Сотрудник",
-      salary: 0,
-      role: "employee",
-      branches: branches.map((branch) => branch.id),
-      permissions: ["sales", "attendance", "deliveries"],
-      active: true,
-      passwordHash: hashPassword("1234"),
-    });
-    changed = true;
-  }
 
-  if (changed) await writeData(data);
-  return changed;
-}
-
-async function syncMoySkladEmployeesToSupabaseCrm() {
-  const entityId = String(process.env.MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID || "").trim();
-  const remoteEmployees = await getMoySkladCustomEntityOptions(entityId, []).catch(() => []);
-  if (!remoteEmployees.length) return false;
-
-  const currentRows = await supabaseGet("/rest/v1/crm_users", {
-    select: "id,login,name,branches",
-    order: "name.asc",
-  }).catch(() => []) as JsonRecord[];
-  const existingByName = new Map(currentRows.map((row) => [normalizeEmployeeKey(row.name), row]));
-  const existingLogins = new Set(currentRows.map((row) => asString(row.login).trim().toLowerCase()).filter(Boolean));
-  const payload: JsonRecord[] = [];
-  let changed = false;
-
-  for (const employee of remoteEmployees) {
-    const name = employee.name.trim();
-    if (!name) continue;
-    const branchIds = ["ayu", "besh"];
-    const existing = existingByName.get(normalizeEmployeeKey(name));
+    const branchIds = normalizeCrmBranches(employee.branchIds);
     if (existing) {
       const nextBranches = [...new Set([...normalizeCrmBranches(existing.branches), ...branchIds])];
-      if (nextBranches.length !== normalizeCrmBranches(existing.branches).length) {
-        await supabaseFetch(`/rest/v1/crm_users?id=eq.${encodeURIComponent(asString(existing.id))}&select=id`, {
+      const shouldUpdateBranches = nextBranches.length !== normalizeCrmBranches(existing.branches).length;
+      const shouldLinkMoySklad = employeeHref && !asString(existing.moysklad_employee_href);
+      if (shouldUpdateBranches || shouldLinkMoySklad) {
+        const id = asString(existing.id);
+        await supabaseFetch(`/rest/v1/crm_users?id=eq.${encodeURIComponent(id)}&select=id`, {
           method: "PATCH",
           headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ branches: nextBranches }),
-        }).catch(() => null);
-        changed = true;
+          body: JSON.stringify({
+            ...(shouldUpdateBranches ? { branches: nextBranches } : {}),
+            ...(shouldLinkMoySklad ? { moysklad_employee_href: employeeHref } : {}),
+          }),
+        });
+        linkedIds.push(id);
       }
       continue;
     }
@@ -1001,28 +1037,35 @@ async function syncMoySkladEmployeesToSupabaseCrm() {
       position: "Сотрудник МойСклад",
       salary: 0,
       role: "seller",
-      branches: branchIds,
+      branches: branchIds.length ? branchIds : ["ayu", "besh"],
       permissions: normalizeCrmPermissions("seller", []),
       active: true,
       password_hash: null,
+      moysklad_employee_href: employeeHref,
     });
   }
 
+  let createdRows: JsonRecord[] = [];
   if (payload.length) {
-    await supabaseFetch("/rest/v1/crm_users", {
+    createdRows = await supabaseFetch("/rest/v1/crm_users?select=id", {
       method: "POST",
-      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      headers: { Prefer: "return=representation" },
       body: JSON.stringify(payload),
-    });
-    changed = true;
+    }) as JsonRecord[];
   }
-  return changed;
+
+  return {
+    createdIds: createdRows.map((row) => asString(row.id)).filter(Boolean),
+    linkedIds,
+    deactivatedIds,
+    activeEmployees: remoteEmployees.filter((employee) => !employee.deleted).length,
+    skippedDeleted: remoteEmployees.filter((employee) => employee.deleted).length,
+  };
 }
 
 async function getCrmLoginUsers(data: AppData) {
-  await syncMoySkladEmployeesToCrm(data).catch(() => {});
   if (!isSupabaseCrmEnabled()) {
-    const local = data.users.filter((user) => user.active).map(publicUser);
+    const local = uniquePublicUsers(data.users.filter((user) => user.active));
     return local.length ? local : getLegacyCrmUsers().map(legacySessionUser);
   }
 
@@ -1032,7 +1075,7 @@ async function getCrmLoginUsers(data: AppData) {
       active: "eq.true",
       order: "name.asc",
     }) as JsonRecord[];
-    const users = rows.map(sanitizeSupabaseUser);
+    const users = uniqueManagedUsers(rows.map(sanitizeSupabaseUser));
     if (!users.length) {
       return getLegacyCrmUsers().map(legacySessionUser);
     }
@@ -1084,17 +1127,79 @@ async function authenticateCrmUser(login: string, password: string, data: AppDat
 }
 
 async function getManagedCrmUsers(data: AppData) {
-  await syncMoySkladEmployeesToCrm(data).catch(() => {});
   if (!isSupabaseCrmEnabled()) return data.users.map(publicUser);
   try {
     const rows = await supabaseGet("/rest/v1/crm_users", {
-      select: "id,login,name,position,salary,role,branches,permissions,active,password_hash,created_at,updated_at",
+      select: "id,login,name,position,salary,role,branches,permissions,active,password_hash,moysklad_employee_href,created_at,updated_at",
       active: "eq.true",
       order: "name.asc",
     }) as JsonRecord[];
     return rows.map(sanitizeManagedCrmUser);
   } catch {
     return data.users.map(publicUser);
+  }
+}
+
+async function createManagedCrmUser(input: JsonRecord, actor: CrmUser) {
+  if (!isSupabaseCrmEnabled()) {
+    throw new Response("Для создания сотрудника настройте SUPABASE_URL и SUPABASE_SERVICE_ROLE_KEY.", { status: 503 });
+  }
+
+  const name = asString(input.name).trim().slice(0, 120);
+  const login = normalizeLoginValue(input.login);
+  const position = asString(input.position, "Сотрудник").trim().slice(0, 120) || "Сотрудник";
+  const salary = Math.min(10_000_000, Math.max(0, asNumber(input.salary)));
+  const role = isCrmRole(input.role) ? input.role : "employee";
+  const branches = normalizeCrmBranches(input.branches);
+  const password = asString(input.password);
+
+  if (!name || !login) throw new Response("Заполните имя и логин сотрудника.", { status: 400 });
+  if (!canActorAssignRole(actor, role)) throw new Response("Только admin может назначать роль admin.", { status: 403 });
+  if (!branches.length) throw new Response("Выберите хотя бы один филиал.", { status: 400 });
+  if (password.length < 6) throw new Response("Пароль должен содержать минимум 6 символов.", { status: 400 });
+  if (password.length > 200) throw new Response("Пароль не должен превышать 200 символов.", { status: 400 });
+  if (await getSupabaseCrmUserByLogin(login)) throw new Response("Логин уже занят.", { status: 409 });
+
+  const remoteEmployees = await getAllMoySkladEmployeesRemote();
+  if (remoteEmployees.some((employee) => normalizeEmployeeKey(employee.name) === normalizeEmployeeKey(name))) {
+    throw new Response("Сотрудник с таким именем уже существует в МойСклад.", { status: 409 });
+  }
+
+  const moySkladEmployee = await createMoySkladEmployeeEntry(name, branches);
+  const payload: JsonRecord = {
+    name,
+    login,
+    position,
+    salary,
+    role,
+    branches,
+    permissions: applyManagedUserPermissionRules(actor, role, input.permissions),
+    active: input.active !== false,
+    password_hash: hashCrmPassword(password),
+    moysklad_employee_href: moySkladEmployee.href,
+  };
+
+  try {
+    const rows = await supabaseFetch("/rest/v1/crm_users?select=*", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(payload),
+    }) as JsonRecord[];
+    if (!rows[0]) throw new Response("Supabase не вернул созданного сотрудника.", { status: 502 });
+    return sanitizeManagedCrmUser(rows[0]);
+  } catch (caught) {
+    const rollback = await deleteMoySkladEmployeeEntry(moySkladEmployee.href, moySkladEmployee.token);
+    const originalMessage = caught instanceof Response
+      ? await caught.text()
+      : caught instanceof Error
+        ? caught.message
+        : "Не удалось сохранить сотрудника в Supabase.";
+    const rollbackMessage = rollback.ok
+      ? "Запись в МойСклад удалена автоматически."
+      : "Не удалось автоматически удалить запись из МойСклад; удалите её вручную.";
+    throw new Response(`${originalMessage} ${rollbackMessage}`, {
+      status: caught instanceof Response ? caught.status : 502,
+    });
   }
 }
 
@@ -1189,7 +1294,10 @@ async function deleteManagedCrmUser(id: string, data: AppData, actor: CrmUser) {
   if (currentRole === "admin" || currentRole === "owner") throw new Response("Нельзя удалить admin или owner.", { status: 400 });
   if (currentRole === "manager" && actor.role !== "admin") throw new Response("Только admin может удалить manager.", { status: 403 });
 
-  const moySkladRemoval = await removeMoySkladEmployeeForCrmUser({ name: asString(current.name) }).catch((error) => {
+  const moySkladRemoval = await removeMoySkladEmployeeForCrmUser({
+    name: asString(current.name),
+    moySkladEmployeeHref: asString(current.moysklad_employee_href),
+  }).catch((error) => {
     if (error instanceof Response) throw error;
     return { status: "skipped", reason: error instanceof Error ? error.message : "МойСклад недоступен." };
   });
@@ -1489,13 +1597,33 @@ async function getMoySkladCustomEntityOptions(entityId: string, fallback: Paymen
   }).filter((item: PaymentOption) => Boolean(item.href));
 }
 
+async function getMoySkladPlainCustomEntityOptions(entityId: string): Promise<CustomEntityOption[]> {
+  if (!entityId) return [];
+  const rows = await moyskladRows(`/entity/customentity/${entityId}`, { limit: "100" }).catch(() => []);
+  if (!rows.length) return [];
+  return rows.map((value: unknown) => {
+    const row = asRecord(value);
+    const href = asString(asRecord(row.meta).href);
+    return {
+      id: href,
+      href,
+      name: asString(row.name),
+    };
+  }).filter((item) => Boolean(item.href));
+}
+
 async function getMoySkladCustomEntityOptionsWithToken(entityId: string, token: string, fallback: PaymentOption[] = []): Promise<PaymentOption[]> {
   if (!entityId || !token) return fallback;
   const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/customentity/${encodeURIComponent(entityId)}?limit=100`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
-  }).catch(() => null);
-  if (!response || !("ok" in response) || !response.ok) return fallback;
+  });
   const payload = asRecord(await response.json().catch(() => null));
+  if (!response.ok) {
+    throw new Response(
+      getMoySkladError(payload, "Не удалось загрузить сотрудников из МойСклад."),
+      { status: response.status },
+    );
+  }
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   if (!rows.length) return fallback;
   return rows.map((value: unknown) => {
@@ -1503,7 +1631,16 @@ async function getMoySkladCustomEntityOptionsWithToken(entityId: string, token: 
     const href = asString(asRecord(row.meta).href);
     const name = asString(row.name);
     const parsed = parsePaymentType(name);
-    return { id: href, href, name, provider: parsed.provider, months: parsed.months, rate: getPaymentRate(parsed.provider, parsed.months, parseRateFromComment(asString(row.description))), comment: asString(row.description) };
+    return {
+      id: href,
+      href,
+      name,
+      archived: row.archived === true,
+      provider: parsed.provider,
+      months: parsed.months,
+      rate: getPaymentRate(parsed.provider, parsed.months, parseRateFromComment(asString(row.description))),
+      comment: asString(row.description),
+    };
   }).filter((item: PaymentOption) => Boolean(item.href));
 }
 
@@ -1534,9 +1671,89 @@ function getMoySkladEmployeeEntityConfigs() {
   return [...deduped.values()];
 }
 
-async function getAllMoySkladEmployeesRemote() {
+function selectMoySkladEmployeeEntityConfig(branchIds: string[]) {
   const configs = getMoySkladEmployeeEntityConfigs();
-  const employeesByKey = new Map<string, { id: string; href: string; name: string; branchIds: string[]; payroll?: Record<string, unknown> }>();
+  if (!configs.length) {
+    throw new Response(
+      "Не настроен справочник сотрудников МойСклад. Задайте MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID и MOYSKLAD_TOKEN.",
+      { status: 503 },
+    );
+  }
+
+  return configs.find((config) => config.key === "default")
+    ?? configs.find((config) => config.branchIds.some((branchId) => branchIds.includes(branchId)))
+    ?? configs[0];
+}
+
+async function createMoySkladEmployeeEntry(name: string, branchIds: string[]) {
+  const config = selectMoySkladEmployeeEntityConfig(branchIds);
+  const response = await moyskladFetch(
+    `${MOYSKLAD_BASE_URL}/entity/customentity/${encodeURIComponent(config.entityId)}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        Accept: "application/json;charset=utf-8",
+        "Content-Type": "application/json;charset=utf-8",
+      },
+      body: JSON.stringify({ name }),
+    },
+  );
+  const payload = asRecord(await response.json().catch(() => null));
+  if (!response.ok) {
+    throw new Response(
+      getMoySkladError(payload, "Не удалось создать сотрудника в МойСклад."),
+      { status: response.status },
+    );
+  }
+
+  const href = asString(asRecord(payload.meta).href);
+  if (!href) {
+    throw new Response("МойСклад создал сотрудника, но не вернул ссылку на запись.", { status: 502 });
+  }
+
+  return { href, token: config.token };
+}
+
+async function deleteMoySkladEmployeeEntry(href: string, token: string) {
+  try {
+    const response = await moyskladFetch(href, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json;charset=utf-8",
+      },
+    });
+    return { ok: response.ok, status: response.status };
+  } catch {
+    return { ok: false, status: 0 };
+  }
+}
+
+function isDeletedMoySkladEmployee(employee: Pick<PaymentOption, "archived" | "comment">) {
+  if (employee.archived) return true;
+  const description = asString(employee.comment).toLocaleLowerCase("ru-RU");
+  return description.includes("[ordo_deleted_employee")
+    || description.includes("[crm удаление");
+}
+
+async function getAllMoySkladEmployeesRemote(options: { includeDeleted?: boolean } = {}) {
+  const configs = getMoySkladEmployeeEntityConfigs();
+  if (!configs.length) {
+    throw new Response(
+      "Не настроены MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID и MOYSKLAD_TOKEN.",
+      { status: 503 },
+    );
+  }
+  const employeesByName = new Map<string, {
+    id: string;
+    href: string;
+    name: string;
+    description: string;
+    deleted: boolean;
+    branchIds: string[];
+    payroll?: Record<string, unknown>;
+  }>();
 
   for (const config of configs) {
     const rows = await getMoySkladCustomEntityOptionsWithToken(config.entityId, config.token, []);
@@ -1544,21 +1761,34 @@ async function getAllMoySkladEmployeesRemote() {
       const href = asString(item.href);
       const name = asString(item.name).trim();
       if (!href || !name) continue;
-      const existing = employeesByKey.get(href) || employeesByKey.get(normalizeEmployeeKey(name));
+      const deleted = isDeletedMoySkladEmployee(item);
+      if (deleted && !options.includeDeleted) continue;
+      const nameKey = normalizeEmployeeKey(name);
+      const existing = employeesByName.get(nameKey);
       if (existing) {
         existing.branchIds = [...new Set([...existing.branchIds, ...config.branchIds])];
+        if (existing.deleted && !deleted) {
+          existing.id = href;
+          existing.href = href;
+          existing.description = asString(item.comment);
+        }
+        existing.deleted = existing.deleted && deleted;
         continue;
       }
-      employeesByKey.set(href || normalizeEmployeeKey(name), {
-        id: href || normalizeEmployeeKey(name),
+      employeesByName.set(nameKey, {
+        id: href,
         href,
         name,
+        description: asString(item.comment),
+        deleted,
         branchIds: [...config.branchIds],
       });
     }
   }
 
-  return [...employeesByKey.values()];
+  return [...employeesByName.values()]
+    .filter((employee) => options.includeDeleted || !employee.deleted)
+    .sort((left, right) => left.name.localeCompare(right.name, "ru", { sensitivity: "base" }));
 }
 
 async function getProducts(search: string, storeHref = "") {
@@ -1658,6 +1888,37 @@ function mapMoySkladProductForSales(value: unknown, index: number, stock = 0) {
   };
 }
 
+function parseCounterpartyBankDetails(comment: string) {
+  const text = String(comment || "");
+  const extract = (patterns: RegExp[]) => {
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match?.[1]) return match[1].trim();
+    }
+    return "";
+  };
+
+  return {
+    bank: extract([
+      /(?:^|\n)\s*Банк\s*:\s*([^\n]+)/i,
+    ]),
+    bik: extract([
+      /(?:^|\n)\s*БИК\s*:\s*([0-9]+)/i,
+    ]),
+    settlementAccount: extract([
+      /(?:^|\n)\s*Расч[её]тный\s+сч[её]т\s*:\s*([0-9]+)/i,
+      /(?:^|\n)\s*р\/?с\s*:\s*([0-9]+)/i,
+    ]),
+    corrAccount: extract([
+      /(?:^|\n)\s*Корр?\.?\s*сч[её]т\s*:\s*([0-9]+)/i,
+      /(?:^|\n)\s*к\/?с\s*:\s*([0-9]+)/i,
+    ]),
+    okpo: extract([
+      /(?:^|\n)\s*ОКПО\s*:\s*([0-9]+)/i,
+    ]),
+  };
+}
+
 async function getCustomers(search: string) {
   const remote = await moysklad("/entity/counterparty", {
     limit: "50",
@@ -1666,12 +1927,22 @@ async function getCustomers(search: string) {
   const rows = Array.isArray(remote?.rows) ? remote.rows : [];
   return rows.map((value, index) => {
     const row = asRecord(value);
+    const comment = asString(row.description || row.comment);
+    const parsed = parseCounterpartyBankDetails(comment);
     return {
       id: index + 1,
       href: asString(asRecord(row.meta).href),
       name: asString(row.name),
       phone: asString(row.phone),
       actualAddress: asString(row.actualAddress ?? row.legalAddress),
+      inn: asString(row.inn),
+      bank: asString(row.bank || parsed.bank),
+      bik: asString(row.bik || parsed.bik),
+      settlementAccount: asString(row.settlementAccount || parsed.settlementAccount),
+      corrAccount: asString(row.corrAccount || parsed.corrAccount),
+      okpo: asString(row.okpo || parsed.okpo),
+      email: asString(row.email),
+      comment,
       customerType: row.companyType === "legal" ? "legal" : row.companyType === "entrepreneur" ? "entrepreneur" : "individual",
     };
   });
@@ -1742,11 +2013,34 @@ function resolveDocumentType(calculation: JsonRecord) {
   return shouldCreateRetailDemand(calculation) ? "retaildemand" : "demand";
 }
 
+function getCalculationPaymentParts(draft: JsonRecord) {
+  const rows = Array.isArray(draft.paymentParts) ? draft.paymentParts.map(asRecord) : [];
+  return rows
+    .map((row) => {
+      const name = asString(row.paymentTypeName ?? row.name).trim();
+      const amount = toMoney(row.amount ?? 0);
+      const paymentType = parsePaymentType(name);
+      const rate = getPaymentRate(paymentType.provider, paymentType.months, asNumber(row.paymentTypeRate, parseRateFromComment(asString(row.paymentTypeComment))));
+      return {
+        name,
+        href: asString(row.paymentTypeHref),
+        amount: roundMoney(amount),
+        provider: paymentType.provider,
+        months: paymentType.months,
+        rate,
+        comment: asString(row.paymentTypeComment),
+      };
+    })
+    .filter((row) => row.name || row.amount > 0);
+}
+
 function calculateDraft(draft: JsonRecord) {
   const items = getOrderItems(draft);
   const cashPrepayment = toMoney(draft.cashPrepayment ?? draft.cashAmount ?? 0);
   const transferPrepayment = toMoney(draft.transferPrepayment ?? draft.bankAmount ?? 0);
   const secondBankAmount = toMoney(draft.secondBankAmount ?? 0);
+  const paymentParts = getCalculationPaymentParts(draft);
+  const hasPaymentParts = paymentParts.length > 0;
   const paymentTypeName = asString(draft.paymentTypeName ?? draft.paymentType, "Наличными");
   const paymentType = parsePaymentType(paymentTypeName);
   const secondPaymentTypeName = asString(draft.secondPaymentTypeName);
@@ -1760,8 +2054,18 @@ function calculateDraft(draft: JsonRecord) {
   if (!Number.isFinite(cashPrepayment) || cashPrepayment < 0) throw new Response("Наличная предоплата не может быть отрицательной.", { status: 400 });
   if (!Number.isFinite(transferPrepayment) || transferPrepayment < 0) throw new Response("Предоплата переводом не может быть отрицательной.", { status: 400 });
   if (!Number.isFinite(secondBankAmount) || secondBankAmount < 0) throw new Response("Сумма через второй банк не может быть отрицательной.", { status: 400 });
-  if (secondBankAmount > 0 && !secondPaymentTypeName) throw new Response("Выберите второй банк.", { status: 400 });
-  if (secondBankAmount > 0 && secondPaymentTypeName === paymentTypeName) throw new Response("Для смешанной оплаты выберите два разных банка.", { status: 400 });
+  if (!hasPaymentParts && secondBankAmount > 0 && !secondPaymentTypeName) throw new Response("Выберите второй банк.", { status: 400 });
+  if (!hasPaymentParts && secondBankAmount > 0 && secondPaymentTypeName === paymentTypeName) throw new Response("Для смешанной оплаты выберите два разных банка.", { status: 400 });
+  if (hasPaymentParts) {
+    const usedPaymentNames = new Set<string>();
+    for (const part of paymentParts) {
+      if (!part.name) throw new Response("Выберите способ оплаты в каждой строке.", { status: 400 });
+      if (!Number.isFinite(part.amount) || part.amount <= 0) throw new Response("Укажите сумму для каждого способа оплаты.", { status: 400 });
+      const key = part.name.toLowerCase();
+      if (usedPaymentNames.has(key)) throw new Response("В смешанной оплате способы не должны повторяться.", { status: 400 });
+      usedPaymentNames.add(key);
+    }
+  }
   if (loyaltyRedemption > 0 && !getLoyaltyConfig().enabled) throw new Response("Бонусная система сейчас выключена.", { status: 400 });
   if (loyaltyRedemption > 0 && draft.customerMode === "retail") throw new Response("Для розничного покупателя нельзя списывать бонусы. Выберите старого или нового клиента.", { status: 400 });
   if (!Number.isFinite(loyaltyRedemption) || loyaltyRedemption < 0 || !Number.isInteger(loyaltyRedemption)) throw new Response("Бонусы списываются только целым числом.", { status: 400 });
@@ -1769,33 +2073,42 @@ function calculateDraft(draft: JsonRecord) {
   const maxLoyaltyRedemption = roundMoney(baseTotal * getLoyaltyConfig().maxRedeemPercent / 100);
   if (loyaltyRedemption > maxLoyaltyRedemption) throw new Response(`Можно списать бонусами не больше ${maxLoyaltyRedemption} сом.`, { status: 400 });
   const payableTotal = roundMoney(baseTotal - loyaltyRedemption);
-  const prepaidTotal = roundMoney(cashPrepayment + transferPrepayment);
+  const paymentPartsTotal = hasPaymentParts ? roundMoney(paymentParts.reduce((sum, part) => sum + part.amount, 0)) : 0;
+  const prepaidTotal = hasPaymentParts ? paymentPartsTotal : roundMoney(cashPrepayment + transferPrepayment);
   if (prepaidTotal > payableTotal) throw new Response("Предоплата не может быть больше суммы товара.", { status: 400 });
   const installmentBase = roundMoney(payableTotal - prepaidTotal);
-  if (secondBankAmount > installmentBase) throw new Response("Сумма через второй банк не может быть больше остатка.", { status: 400 });
-  const primaryBankAmount = roundMoney(installmentBase - secondBankAmount);
-  const commission = roundMoney(primaryBankAmount * rate + secondBankAmount * secondRate);
+  if (!hasPaymentParts && secondBankAmount > installmentBase) throw new Response("Сумма через второй банк не может быть больше остатка.", { status: 400 });
+  const primaryBankAmount = hasPaymentParts ? roundMoney(paymentParts[0]?.amount || 0) : roundMoney(installmentBase - secondBankAmount);
+  const effectiveSecondBankAmount = hasPaymentParts ? roundMoney(paymentParts[1]?.amount || 0) : secondBankAmount;
+  const effectiveSecondPaymentTypeName = hasPaymentParts ? paymentParts[1]?.name || "" : secondPaymentTypeName;
+  const effectiveSecondPaymentTypeHref = hasPaymentParts ? paymentParts[1]?.href || "" : asString(draft.secondPaymentTypeHref);
+  const effectiveSecondMonths = hasPaymentParts ? paymentParts[1]?.months || 0 : secondPaymentType.months;
+  const effectiveSecondRate = hasPaymentParts ? paymentParts[1]?.rate || 0 : secondRate;
+  const commission = hasPaymentParts
+    ? roundMoney(paymentParts.reduce((sum, part) => sum + part.amount * part.rate, 0))
+    : roundMoney(primaryBankAmount * rate + secondBankAmount * secondRate);
   const costTotal = roundMoney(items.reduce((sum, item) => sum + item.costTotal, 0));
   const netTotal = roundMoney(payableTotal - commission);
   const result = {
     items,
     bank: paymentType.provider,
     paymentType: paymentTypeName,
-    paymentLabel: secondBankAmount > 0 ? `${paymentTypeName} + ${secondPaymentTypeName}` : paymentTypeName,
+    paymentLabel: hasPaymentParts ? paymentParts.map((part) => part.name).join(" + ") : secondBankAmount > 0 ? `${paymentTypeName} + ${secondPaymentTypeName}` : paymentTypeName,
+    paymentParts,
     months: paymentType.months,
     rate,
     primaryBankAmount,
-    secondPaymentType: secondPaymentTypeName,
-    secondPaymentTypeHref: asString(draft.secondPaymentTypeHref),
-    secondMonths: secondPaymentType.months,
-    secondRate,
-    secondBankAmount,
+    secondPaymentType: effectiveSecondPaymentTypeName,
+    secondPaymentTypeHref: effectiveSecondPaymentTypeHref,
+    secondMonths: effectiveSecondMonths,
+    secondRate: effectiveSecondRate,
+    secondBankAmount: effectiveSecondBankAmount,
     baseTotal,
     loyaltyRedemption,
     payableTotal,
-    cashPrepayment,
+    cashPrepayment: hasPaymentParts ? roundMoney(paymentParts.filter((part) => isCashPrepaymentMethod(part.name)).reduce((sum, part) => sum + part.amount, 0)) : cashPrepayment,
     prepaymentMethodName: asString(draft.prepaymentMethodName, "Наличными"),
-    transferPrepayment,
+    transferPrepayment: hasPaymentParts ? roundMoney(paymentParts.filter((part) => !isCashPrepaymentMethod(part.name)).reduce((sum, part) => sum + part.amount, 0)) : transferPrepayment,
     prepaidTotal,
     installmentBase,
     commission,
@@ -1803,7 +2116,9 @@ function calculateDraft(draft: JsonRecord) {
     netTotal,
     costTotal,
     netProfit: roundMoney(netTotal - costTotal),
-    monthlyPayment: roundMoney((paymentType.months > 0 ? primaryBankAmount / paymentType.months : 0) + (secondPaymentType.months > 0 ? secondBankAmount / secondPaymentType.months : 0)),
+    monthlyPayment: hasPaymentParts
+      ? roundMoney(paymentParts.reduce((sum, part) => sum + (part.months > 1 ? part.amount / part.months : 0), 0))
+      : roundMoney((paymentType.months > 0 ? primaryBankAmount / paymentType.months : 0) + (secondPaymentType.months > 0 ? secondBankAmount / secondPaymentType.months : 0)),
     currency: "KGS",
   };
   return { ...result, documentType: resolveDocumentType(result) };
@@ -1873,8 +2188,16 @@ function isCashPrepaymentMethod(methodName: unknown) {
 }
 
 function getRetailPaymentSums(calculation: JsonRecord, documentTotal = asNumber(calculation.finalTotal)) {
+  const paymentParts = Array.isArray(calculation.paymentParts) ? calculation.paymentParts.map(asRecord) : [];
   const paymentName = asString(calculation.paymentType).toLowerCase();
   const total = roundMoney(documentTotal);
+  if (paymentParts.length) {
+    const cashAmount = roundMoney(paymentParts
+      .filter((part) => isCashPrepaymentMethod(part.name))
+      .reduce((sum, part) => sum + asNumber(part.amount), 0));
+    const cashSum = Math.min(cashAmount, total);
+    return { cashSum: toMoySkladPrice(cashSum), noCashSum: toMoySkladPrice(total - cashSum) };
+  }
   const prepaidTotal = roundMoney(asNumber(calculation.cashPrepayment) + asNumber(calculation.transferPrepayment));
   if (prepaidTotal <= 0 && (paymentName.includes("налич") || paymentName.includes("cash"))) return { cashSum: toMoySkladPrice(total), noCashSum: 0 };
   if (prepaidTotal <= 0 && (paymentName.includes("карта") || paymentName.includes("qr"))) return { cashSum: 0, noCashSum: toMoySkladPrice(total) };
@@ -1884,6 +2207,7 @@ function getRetailPaymentSums(calculation: JsonRecord, documentTotal = asNumber(
 }
 
 function buildDocumentDescription(calculation: JsonRecord) {
+  const paymentParts = Array.isArray(calculation.paymentParts) ? calculation.paymentParts.map(asRecord) : [];
   const paymentName = asString(calculation.paymentType);
   const lowerPaymentName = paymentName.toLowerCase();
   const paidAmount = getPaidAmount(calculation);
@@ -1891,12 +2215,16 @@ function buildDocumentDescription(calculation: JsonRecord) {
   const isDebt = lowerPaymentName.includes("долг");
   const hasSecondBank = asNumber(calculation.secondBankAmount) > 0;
   const isMixed = paidAmount > 0 && unpaidAmount > 0;
-  const lines = (isMixed || hasSecondBank) && !isDebt ? [] : [`Тип оплаты: ${paymentName}.`];
+  const lines = (paymentParts.length || isMixed || hasSecondBank) && !isDebt ? [] : [`Тип оплаты: ${paymentName}.`];
 
   if (isDebt) {
     lines.push(`${asString(calculation.prepaymentMethodName, "Наличными")}: ${formatMoney(paidAmount)} сом.`);
     lines.push(`Не оплачено: ${formatMoney(unpaidAmount)} сом.`);
     lines.push(`Долг: ${formatMoney(unpaidAmount)} сом.`);
+  } else if (paymentParts.length) {
+    for (const part of paymentParts) {
+      lines.push(`${asString(part.name, "Оплата")}: ${formatMoney(part.amount)} сом.`);
+    }
   } else if (hasSecondBank) {
     if (paidAmount > 0) lines.push(`${asString(calculation.prepaymentMethodName, "Наличными")}: ${formatMoney(paidAmount)} сом.`);
     if (asNumber(calculation.primaryBankAmount) > 0) lines.push(`${paymentName}: ${formatMoney(calculation.primaryBankAmount)} сом.`);
@@ -1953,15 +2281,76 @@ async function getStoreHrefForRetailStore(token: string, retailStoreHref: string
   return asString(asRecord(asRecord(payload?.store).meta).href);
 }
 
+async function updateCounterpartyContact(token: string, href: string, input: JsonRecord) {
+  const payload: JsonRecord = {};
+  const phone = asString(input.customerPhone).trim();
+  const address = asString(input.customerAddress).trim();
+  const bank = asString(input.customerBank).trim();
+  const bik = asString(input.customerBik).trim();
+  const settlementAccount = asString(input.customerSettlementAccount).trim();
+  const corrAccount = asString(input.customerCorrAccount).trim();
+  const okpo = asString(input.customerOkpo).trim();
+  const email = asString(input.customerEmail).trim();
+  const tags = Array.isArray(input.customerGroups) ? input.customerGroups.map(String).map((value) => value.trim()).filter(Boolean) : [];
+
+  if (phone) payload.phone = phone;
+  if (email) payload.email = email;
+  if (address) payload.actualAddress = address;
+  if (tags.length) payload.tags = tags;
+  if (bank || bik || settlementAccount || corrAccount || okpo) {
+    const lines = [];
+    if (bank) lines.push(`Банк: ${bank}`);
+    if (bik) lines.push(`БИК: ${bik}`);
+    if (settlementAccount) lines.push(`Расчетный счет: ${settlementAccount}`);
+    if (corrAccount) lines.push(`Корр. счет: ${corrAccount}`);
+    if (okpo) lines.push(`ОКПО: ${okpo}`);
+    payload.description = lines.join("\n");
+  }
+  if (!Object.keys(payload).length) return;
+
+  const response = await moyskladFetch(href, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8", "Content-Type": "application/json;charset=utf-8" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Response("Не удалось обновить контрагента в МойСклад.", { status: response.status });
+}
+
 async function getOrCreateCounterparty(token: string, input: JsonRecord) {
   if (asString(input.agentHref)) return asString(input.agentHref);
   if (input.customerMode === "retail") return getMoySkladEnvValue("AGENT_HREF");
-  if (input.customerMode === "existing" && asString(input.customerHref)) return asString(input.customerHref);
+  if (input.customerMode === "existing" && asString(input.customerHref)) {
+    await updateCounterpartyContact(token, asString(input.customerHref), input);
+    return asString(input.customerHref);
+  }
   const customerName = asString(input.customerName).trim();
   if (!customerName) throw new Response("Укажите ФИО клиента.", { status: 400 });
   const payload: JsonRecord = { name: customerName, description: "Создано автоматически из Ordo CRM" };
-  if (asString(input.customerPhone)) payload.phone = asString(input.customerPhone);
-  if (asString(input.customerAddress)) payload.actualAddress = asString(input.customerAddress);
+  const tags = Array.isArray(input.customerGroups) ? input.customerGroups.map(String).map((value) => value.trim()).filter(Boolean) : [];
+  const bank = asString(input.customerBank).trim();
+  const bik = asString(input.customerBik).trim();
+  const settlementAccount = asString(input.customerSettlementAccount).trim();
+  const corrAccount = asString(input.customerCorrAccount).trim();
+  const okpo = asString(input.customerOkpo).trim();
+  const email = asString(input.customerEmail).trim();
+  const inn = asString(input.customerInn).trim();
+  const phone = asString(input.customerPhone).trim();
+  const address = asString(input.customerAddress).trim();
+
+  const descriptionLines = ["Создано автоматически из Ordo CRM"];
+  if (bank) descriptionLines.push(`Банк: ${bank}`);
+  if (bik) descriptionLines.push(`БИК: ${bik}`);
+  if (settlementAccount) descriptionLines.push(`Расчетный счет: ${settlementAccount}`);
+  if (corrAccount) descriptionLines.push(`Корр. счет: ${corrAccount}`);
+  if (okpo) descriptionLines.push(`ОКПО: ${okpo}`);
+  payload.description = descriptionLines.join("\n");
+
+  if (inn) payload.inn = inn;
+  if (phone) payload.phone = phone;
+  if (email) payload.email = email;
+  if (address) payload.actualAddress = address;
+  if (tags.length) payload.tags = tags;
+
   const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/counterparty`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8", "Content-Type": "application/json;charset=utf-8" },
@@ -1970,6 +2359,163 @@ async function getOrCreateCounterparty(token: string, input: JsonRecord) {
   const created = await response.json().catch(() => null);
   if (!response.ok) throw new Response("Не удалось создать контрагента в МойСклад.", { status: response.status });
   return asString(asRecord(created?.meta).href);
+}
+
+async function createCommercialMoySkladDocument(input: JsonRecord) {
+  const token = getMoySkladToken();
+  const organizationHref = getMoySkladEnvValue("ORGANIZATION_HREF");
+  const documentType = asString(input.documentType, "customerorder");
+  if (!["customerorder", "demand"].includes(documentType)) {
+    throw new Response("Выберите тип документа: счет или отгрузка.", { status: 400 });
+  }
+  if (!organizationHref) throw new Response("Для создания документа нужен MOYSKLAD_ORGANIZATION_HREF.", { status: 500 });
+
+  const items = getOrderItems(input);
+  const agentHref = await getOrCreateCounterparty(token, input);
+  const storeHref = asString(input.storeHref) || getMoySkladEnvValue("STORE_HREF");
+  if (documentType === "demand" && !storeHref) {
+    throw new Response("Для создания отгрузки нужен MOYSKLAD_STORE_HREF.", { status: 500 });
+  }
+
+  const payload: JsonRecord = {
+    organization: meta(organizationHref, "organization"),
+    agent: meta(agentHref, "counterparty"),
+    description: asString(input.description).trim() || (documentType === "demand" ? "Отгрузка" : "Счет на оплату"),
+    positions: items.map((item) => ({
+      quantity: item.quantity,
+      price: toMoySkladPrice(item.productPrice),
+      assortment: meta(item.assortmentHref, item.assortmentType),
+    })),
+  };
+
+  if (documentType === "demand") {
+    payload.store = meta(storeHref, "store");
+  }
+
+  const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/${documentType}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8", "Content-Type": "application/json;charset=utf-8" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Response(getMoySkladError(data, "Не удалось создать коммерческий документ в МойСклад."), { status: response.status });
+  }
+
+  return {
+    id: asString(data?.id),
+    name: asString(data?.name),
+    type: documentType,
+    moment: asString(data?.moment),
+    sum: asNumber(data?.sum),
+    meta: asRecord(data?.meta),
+    agentHref,
+    webUrl: `https://online.moysklad.ru/app/#${documentType}/edit?id=${encodeURIComponent(asString(data?.id))}`,
+  };
+}
+
+async function createDemandFromCustomerOrder(orderId: string, input: JsonRecord = {}) {
+  const token = getMoySkladToken();
+  const storeHref = asString(input.storeHref) || getMoySkladEnvValue("STORE_HREF");
+  if (!storeHref) {
+    throw new Response("Для создания отгрузки нужен MOYSKLAD_STORE_HREF.", { status: 500 });
+  }
+
+  const expand = new URLSearchParams({
+    expand: "agent,organization,positions,positions.assortment,store",
+  });
+  const orderResponse = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/customerorder/${encodeURIComponent(orderId)}?${expand}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
+  });
+  const order = await orderResponse.json().catch(() => null);
+  if (!orderResponse.ok) {
+    throw new Response(getMoySkladError(order, "Не удалось загрузить заказ покупателя."), { status: orderResponse.status });
+  }
+
+  const positions = Array.isArray(order?.positions?.rows)
+    ? order.positions.rows.map(asRecord).map((position: JsonRecord) => ({
+        quantity: asNumber(position.quantity, 1),
+        price: asNumber(position.price),
+        assortment: asRecord(position.assortment),
+      }))
+    : [];
+
+  if (!positions.length) {
+    throw new Response("В заказе нет позиций для отгрузки.", { status: 400 });
+  }
+
+  const payload: JsonRecord = {
+    organization: asRecord(order?.organization),
+    agent: asRecord(order?.agent),
+    store: meta(storeHref, "store"),
+    description: asString(order?.description) || `Отгрузка по заказу ${asString(order?.name)}`,
+    customerOrder: asRecord(order?.meta),
+    positions,
+  };
+
+  const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/demand`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8", "Content-Type": "application/json;charset=utf-8" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Response(getMoySkladError(data, "Не удалось создать отгрузку по заказу."), { status: response.status });
+  }
+
+  return {
+    id: asString(data?.id),
+    name: asString(data?.name),
+    type: "demand",
+    moment: asString(data?.moment),
+    sum: asNumber(data?.sum),
+    meta: asRecord(data?.meta),
+    webUrl: `https://online.moysklad.ru/app/#demand/edit?id=${encodeURIComponent(asString(data?.id))}`,
+  };
+}
+
+async function getCommercialCustomerOrders(customerHref: string) {
+  const token = getMoySkladToken();
+  const href = customerHref.trim();
+  if (!href) return { orders: [] };
+
+  const params = new URLSearchParams({
+    limit: "50",
+    order: "moment,desc",
+    expand: "agent,organization,store,state",
+    filter: `agent=${href}`,
+  });
+  const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/customerorder?${params}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Response(getMoySkladError(payload, "Не удалось загрузить заказы покупателя."), { status: response.status });
+  }
+
+  const orders = Array.isArray(payload?.rows)
+    ? payload.rows.map(asRecord).map((order: JsonRecord) => {
+        const sum = fromMoySkladPrice(asNumber(order.sum));
+        const paid = fromMoySkladPrice(asNumber(order.payedSum));
+        const shipped = fromMoySkladPrice(asNumber(order.shippedSum));
+        return {
+          id: asString(order.id),
+          name: asString(order.name),
+          moment: asString(order.moment || order.created),
+          sum,
+          paid,
+          unpaid: roundMoney(Math.max(0, sum - paid)),
+          shipped,
+          unshipped: roundMoney(Math.max(0, sum - shipped)),
+          stateName: asString(asRecord(order.state).name),
+          organizationName: asString(asRecord(order.organization).name),
+          customerName: asString(asRecord(order.agent).name),
+          webUrl: `https://online.moysklad.ru/app/#customerorder/edit?id=${encodeURIComponent(asString(order.id))}`,
+        };
+      })
+    : [];
+
+  return { orders };
 }
 
 async function createIncomingPayment(token: string, input: JsonRecord) {
@@ -2005,7 +2551,7 @@ async function createIncomingPayment(token: string, input: JsonRecord) {
 
 async function createMoySkladDocument(calculation: JsonRecord, input: JsonRecord) {
   const token = getMoySkladToken();
-  let documentType = asString(input.documentType || calculation.documentType || resolveDocumentType(calculation));
+  const documentType = asString(input.documentType || calculation.documentType || resolveDocumentType(calculation));
   const organizationHref = getMoySkladEnvValue("ORGANIZATION_HREF");
   if (input.customerMode !== "retail" && !asString(input.customerPhone).trim()) throw new Response("Укажите номер телефона клиента.", { status: 400 });
   const agentHref = await getOrCreateCounterparty(token, input);
@@ -2023,8 +2569,7 @@ async function createMoySkladDocument(calculation: JsonRecord, input: JsonRecord
       shiftHref = await createRetailShift(token, retailStoreHref, organizationHref).catch(() => "");
     }
     if (!shiftHref) {
-      if (!storeHref) throw new Response("Для создания документа без кассовой смены нужен MOYSKLAD_STORE_HREF.", { status: 500 });
-      documentType = "demand";
+      throw new Response("Не удалось открыть кассовую смену для точки продаж. Проверьте кассу МойСклад и повторите снова.", { status: 409 });
     }
   }
   if (documentType === "customerorder") throw new Response("Создание заказа покупателя на странице продаж сейчас не используется.", { status: 400 });
@@ -2053,6 +2598,7 @@ async function createMoySkladDocument(calculation: JsonRecord, input: JsonRecord
   const attributes: JsonRecord[] = [];
   const attributeMap = [
     ["PAYMENT_TYPE", asString(input.paymentTypeHref) ? meta(asString(input.paymentTypeHref), "customentity") : null],
+    ["SALES_CHANNEL", asString(input.salesChannelHref) ? meta(asString(input.salesChannelHref), "customentity") : null],
     ["EMPLOYEE", asString(input.employeeHref) ? meta(asString(input.employeeHref), "customentity") : null],
     ["RECEIVABLE", Math.round(getReceivableAmount(calculation, documentType))],
     ["PAID", Math.round(getPaidAmount(calculation))],
@@ -2372,10 +2918,28 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
   const documentTypes = allowed.includes(requested) ? [requested] : allowed;
   const customerType = url.searchParams.get("customerType") || "";
   const search = (url.searchParams.get("search") || "").trim().toLowerCase();
-  const groups = await Promise.all(documentTypes.map((type) => loadMoySkladDocuments(type, dateFrom, dateTo, {
-    retailStoreHref: url.searchParams.get("retailStoreHref") || "",
-    storeHref: url.searchParams.get("storeHref") || "",
-  })));
+  const cacheKey = [
+    dateFrom,
+    dateTo,
+    documentTypes.join(","),
+    customerType,
+    search,
+    url.searchParams.get("retailStoreHref") || "",
+    url.searchParams.get("storeHref") || "",
+  ].join("|");
+  const cached = salesReportCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < SALES_REPORT_CACHE_TTL_MS) {
+    return sanitizeSalesReportForUser(cached.value, user || null);
+  }
+
+  const groups: JsonRecord[][] = [];
+  for (const type of documentTypes) {
+    groups.push(await loadMoySkladDocuments(type, dateFrom, dateTo, {
+      retailStoreHref: url.searchParams.get("retailStoreHref") || "",
+      storeHref: url.searchParams.get("storeHref") || "",
+    }));
+    if (documentTypes.length > 1) await sleep(120);
+  }
   let rows = groups.flatMap((group, index) => group.map((row) => mapMoySkladReportDocument(row, documentTypes[index])));
   if (customerType) rows = rows.filter((row) => row.customerType === customerType);
   if (search) {
@@ -2392,13 +2956,15 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
     commission: roundMoney(sum.commission + asNumber(row.commission)),
     netProfit: roundMoney(sum.netProfit + asNumber(row.netProfit)),
   }), { documents: 0, amount: 0, paid: 0, unpaid: 0, commission: 0, netProfit: 0 });
-  return sanitizeSalesReportForUser({
+  const report = {
     dateFrom: url.searchParams.get("dateFrom") || "",
     dateTo: url.searchParams.get("dateTo") || "",
     rows: sortedRows,
     totals,
     canViewProfit: true,
-  }, user || null);
+  };
+  salesReportCache.set(cacheKey, { value: report, createdAt: Date.now() });
+  return sanitizeSalesReportForUser(report, user || null);
 }
 
 async function createReportReturn(payload: JsonRecord) {
@@ -2729,18 +3295,17 @@ async function ensureReconciliationScanState(
     reconciliationListCache.set(cacheKey, state);
   }
   while (!state.completed && getSortedReconciliationDebtors(state).length < desiredCount) {
-    const [retailRows, demandRows] = await Promise.all([
-      loadMoySkladDocuments("retaildemand", filters.dateFrom, filters.dateTo, {
-        offset: state.scannedOffsets.retaildemand,
-        limit: RECONCILIATION_BATCH_SIZE,
-        maxRows: RECONCILIATION_BATCH_SIZE,
-      }),
-      loadMoySkladDocuments("demand", filters.dateFrom, filters.dateTo, {
-        offset: state.scannedOffsets.demand,
-        limit: RECONCILIATION_BATCH_SIZE,
-        maxRows: RECONCILIATION_BATCH_SIZE,
-      }),
-    ]);
+    const retailRows = await loadMoySkladDocuments("retaildemand", filters.dateFrom, filters.dateTo, {
+      offset: state.scannedOffsets.retaildemand,
+      limit: RECONCILIATION_BATCH_SIZE,
+      maxRows: RECONCILIATION_BATCH_SIZE,
+    });
+    await sleep(120);
+    const demandRows = await loadMoySkladDocuments("demand", filters.dateFrom, filters.dateTo, {
+      offset: state.scannedOffsets.demand,
+      limit: RECONCILIATION_BATCH_SIZE,
+      maxRows: RECONCILIATION_BATCH_SIZE,
+    });
     state.scannedOffsets.retaildemand += retailRows.length;
     state.scannedOffsets.demand += demandRows.length;
     const mapped = [
@@ -2850,10 +3415,17 @@ async function getReconciliationDebtorDetails(id: string, url: URL) {
     return cached.value;
   }
   const customerHref = `${MOYSKLAD_BASE_URL}/entity/counterparty/${encodeURIComponent(id)}`;
-  const groups = await Promise.all(["retaildemand", "demand"].map((type) => loadMoySkladDocuments(type, dateFrom, dateTo, {
+  const retailRows = await loadMoySkladDocuments("retaildemand", dateFrom, dateTo, {
     filterAgentHref: customerHref,
-  })));
-  const documents = groups.flatMap((group, index) => group.map((row) => mapMoySkladReportDocument(row, index === 0 ? "retaildemand" : "demand")));
+  });
+  await sleep(120);
+  const demandRows = await loadMoySkladDocuments("demand", dateFrom, dateTo, {
+    filterAgentHref: customerHref,
+  });
+  const documents = [
+    ...retailRows.map((row) => mapMoySkladReportDocument(row, "retaildemand")),
+    ...demandRows.map((row) => mapMoySkladReportDocument(row, "demand")),
+  ];
   const debtorDocuments = documents.filter((document) => document.unpaid > 0);
   if (!debtorDocuments.length) throw new Response("Должник не найден", { status: 404 });
 
@@ -2963,8 +3535,28 @@ async function getMoySkladPriceTypes() {
   return Array.isArray(payload) ? payload.map(mapPriceType).filter((item) => item.href) : [];
 }
 
+async function getMoySkladAccountingCurrencies() {
+  const rows = await moyskladRows("/entity/currency", { limit: "100" });
+  return new Map(rows.map((value) => {
+    const row = asRecord(value);
+    return [asString(asRecord(row.meta).href), {
+      href: asString(asRecord(row.meta).href),
+      isoCode: asString(row.isoCode),
+      name: asString(row.name || row.fullName),
+    }];
+  }).filter(([href]) => href));
+}
+
 async function getMoySkladProductFolders() {
-  const rows = await moyskladRows("/entity/productfolder", { limit: "100", order: "pathName,asc" });
+  const rows = [];
+  let offset = 0;
+  const limit = 100;
+  while (offset < 5000) {
+    const page = await moyskladRows("/entity/productfolder", { limit: String(limit), offset: String(offset), order: "pathName,asc" });
+    rows.push(...page);
+    if (page.length < limit) break;
+    offset += limit;
+  }
   return rows.map((value) => {
     const row = asRecord(value);
     return {
@@ -2977,7 +3569,17 @@ async function getMoySkladProductFolders() {
   });
 }
 
-function mapAccountingProduct(value: unknown) {
+function resolveAccountingCurrency(currency: JsonRecord, currenciesByHref: Map<string, { href: string; isoCode: string; name: string }>) {
+  const href = asString(asRecord(currency.meta).href);
+  const resolved = href ? currenciesByHref.get(href) : undefined;
+  return {
+    href,
+    isoCode: asString(currency.isoCode || resolved?.isoCode),
+    name: asString(currency.name || currency.fullName || resolved?.name),
+  };
+}
+
+function mapAccountingProduct(value: unknown, currenciesByHref = new Map<string, { href: string; isoCode: string; name: string }>()) {
   const row = asRecord(value);
   const salePrices = Array.isArray(row.salePrices) ? row.salePrices.map(asRecord) : [];
   const folder = asRecord(row.productFolder);
@@ -2985,6 +3587,8 @@ function mapAccountingProduct(value: unknown) {
   const buyPriceCurrency = asRecord(buyPrice.currency);
   const minPrice = asRecord(row.minPrice);
   const minPriceCurrency = asRecord(minPrice.currency);
+  const buyCurrency = resolveAccountingCurrency(buyPriceCurrency, currenciesByHref);
+  const minimumCurrency = resolveAccountingCurrency(minPriceCurrency, currenciesByHref);
   return {
     id: asString(row.id),
     href: asString(asRecord(row.meta).href),
@@ -3001,24 +3605,27 @@ function mapAccountingProduct(value: unknown) {
     } : null,
     buyPrice: {
       value: fromMoySkladPrice(buyPrice.value),
-      currencyHref: asString(asRecord(buyPriceCurrency.meta).href),
-      currencyIsoCode: asString(buyPriceCurrency.isoCode),
-      currencyName: asString(buyPriceCurrency.name || buyPriceCurrency.fullName),
+      currencyHref: buyCurrency.href,
+      currencyIsoCode: buyCurrency.isoCode,
+      currencyName: buyCurrency.name,
     },
     minPrice: {
       value: fromMoySkladPrice(minPrice.value),
-      currencyHref: asString(asRecord(minPriceCurrency.meta).href),
-      currencyIsoCode: asString(minPriceCurrency.isoCode),
-      currencyName: asString(minPriceCurrency.name || minPriceCurrency.fullName),
+      currencyHref: minimumCurrency.href,
+      currencyIsoCode: minimumCurrency.isoCode,
+      currencyName: minimumCurrency.name,
     },
-    prices: salePrices.map((price) => ({
-      value: fromMoySkladPrice(price.value),
-      priceTypeHref: asString(asRecord(asRecord(price.priceType).meta).href),
-      priceTypeName: asString(asRecord(price.priceType).name),
-      currencyHref: asString(asRecord(asRecord(price.currency).meta).href),
-      currencyIsoCode: asString(asRecord(price.currency).isoCode),
-      currencyName: asString(asRecord(price.currency).name),
-    })),
+    prices: salePrices.map((price) => {
+      const currency = resolveAccountingCurrency(asRecord(price.currency), currenciesByHref);
+      return {
+        value: fromMoySkladPrice(price.value),
+        priceTypeHref: asString(asRecord(asRecord(price.priceType).meta).href),
+        priceTypeName: asString(asRecord(price.priceType).name),
+        currencyHref: currency.href,
+        currencyIsoCode: currency.isoCode,
+        currencyName: currency.name,
+      };
+    }),
   };
 }
 
@@ -3397,17 +4004,18 @@ async function savePayrollConfigs(input: JsonRecord) {
 async function getAccountingPriceCatalog(url: URL) {
   const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
   const limit = Math.max(1, Math.min(500, Number(url.searchParams.get("limit")) || 100));
-  const [productPage, priceTypes, folders] = await Promise.all([
+  const [productPage, priceTypes, folders, currenciesByHref] = await Promise.all([
     moysklad("/entity/product", { limit: String(limit), offset: String(offset), order: "name,asc", expand: "productFolder" }),
     url.searchParams.get("includePriceTypes") === "false" ? Promise.resolve([]) : getMoySkladPriceTypes(),
     url.searchParams.get("includePriceTypes") === "false" ? Promise.resolve([]) : getMoySkladProductFolders(),
+    getMoySkladAccountingCurrencies(),
   ]);
   const rows = Array.isArray(productPage.rows) ? productPage.rows : [];
   const total = asNumber(asRecord(productPage.meta).size, offset + rows.length);
   return {
     priceTypes,
     folders,
-    products: rows.map(mapAccountingProduct),
+    products: rows.map((row) => mapAccountingProduct(row, currenciesByHref)),
     total,
     offset,
     limit,
@@ -4150,9 +4758,15 @@ function buildCommercialInvoice(payload: JsonRecord) {
     payload.sellerLine
       || payload.organizationDetails
       || process.env.INVOICE_SELLER_LINE
-      || "ИП Матаев Женишбек Камилович, ИНН 20305197500183, г.Бишкек, Ленинский район, ж/м, ул.20-я, дом №14, р/c 1280156055213894, Банк: ЗАО «Кыргызский Инвестиционно-Кредитный Банк», БИК 128015",
+      || "ИП Матаев Женишбек Камилович, ИНН 20305197500183, г. Бишкек, Ленинский район, ж/м, ул. 20-я, дом №14",
   );
   const directorName = asString(payload.directorName || process.env.INVOICE_DIRECTOR_NAME || "Матаев Ж.К");
+  const sellerBank = asString(payload.sellerBank || process.env.INVOICE_SELLER_BANK || "Оптима Банк");
+  const sellerBik = asString(payload.sellerBik || process.env.INVOICE_SELLER_BIK || "109014");
+  const sellerBankAddress = asString(payload.sellerBankAddress || process.env.INVOICE_SELLER_BANK_ADDRESS || "Киевская 250");
+  const sellerCorrAccount = asString(payload.sellerCorrAccount || process.env.INVOICE_SELLER_CORR_ACCOUNT);
+  const sellerSettlementAccount = asString(payload.sellerSettlementAccount || process.env.INVOICE_SELLER_SETTLEMENT_ACCOUNT || "1091420944220146");
+  const sellerAccountCurrency = asString(payload.sellerAccountCurrency || process.env.INVOICE_SELLER_ACCOUNT_CURRENCY || "сом (KGS)");
   const customerName = asString(payload.customerName, "Контрагент");
   const customerInn = asString(payload.customerInn);
   const customerOkpo = asString(payload.customerOkpo);
@@ -4206,6 +4820,15 @@ function buildCommercialInvoice(payload: JsonRecord) {
   <div class="title">Счет на оплату №${escapeHtml(invoiceNumber)} от ${escapeHtml(invoiceDate)} г.</div>
 
   <div class="block"><span class="label">Организация:</span> ${escapeHtml(sellerLine)}</div>
+  <div class="block">
+    <span class="label">Банковские реквизиты:</span><br>
+    ${sellerBank ? `Банк: ${escapeHtml(sellerBank)}<br>` : ""}
+    ${sellerBik ? `БИК: ${escapeHtml(sellerBik)}<br>` : ""}
+    ${sellerBankAddress ? `Адрес банка: ${escapeHtml(sellerBankAddress)}<br>` : ""}
+    ${sellerSettlementAccount ? `Расчетный счет: ${escapeHtml(sellerSettlementAccount)}<br>` : ""}
+    ${sellerCorrAccount ? `Корр. счет: ${escapeHtml(sellerCorrAccount)}<br>` : ""}
+    ${sellerAccountCurrency ? `Валюта счета: ${escapeHtml(sellerAccountCurrency)}` : ""}
+  </div>
 
   <div class="block">
     <span class="label">Покупатель:</span><br>
@@ -4254,6 +4877,441 @@ function buildCommercialInvoice(payload: JsonRecord) {
 </html>`;
 }
 
+async function fetchMoySkladImageAsDataUrl(token: string, source: JsonRecord) {
+  const candidates = [
+    asString(source.downloadHref),
+    asString(asRecord(source.meta).downloadHref),
+    asString(asRecord(source.miniature).downloadHref),
+    asString(asRecord(asRecord(source.miniature).meta).downloadHref),
+  ].filter(Boolean);
+
+  for (const url of candidates) {
+    const response = await moyskladFetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "*/*" },
+    }).catch(() => null);
+    if (!response?.ok) continue;
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get("content-type") || "image/jpeg";
+    return `data:${contentType};base64,${buffer.toString("base64")}`;
+  }
+
+  return "";
+}
+
+function formatProposalAttributeValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "object") {
+    const record = asRecord(value);
+    return asString(record.name || record.value || asRecord(record.meta).href);
+  }
+  return String(value);
+}
+
+async function getCommercialProposalProducts(payload: JsonRecord) {
+  const token = getMoySkladToken();
+  const items = Array.isArray(payload.items) ? payload.items.map(asRecord) : [];
+
+  return Promise.all(items.map(async (item) => {
+    const href = asString(item.assortmentHref).trim();
+    const fallbackName = asString(item.productName || item.name, "Товар");
+    const fallbackPrice = asNumber(item.productPrice || item.price);
+    const fallbackQuantity = asNumber(item.quantity, 1);
+
+    if (!href) {
+      return {
+        name: fallbackName,
+        code: asString(item.code),
+        article: "",
+        folderName: "",
+        description: "",
+        characteristics: [],
+        imageDataUrl: "",
+        quantity: fallbackQuantity,
+        price: fallbackPrice,
+        amount: roundMoney(fallbackQuantity * fallbackPrice),
+      };
+    }
+
+    const detailUrl = `${href}?${new URLSearchParams({ expand: "productFolder,images" }).toString()}`;
+    const response = await moyskladFetch(detailUrl, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
+    });
+    const product = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        name: fallbackName,
+        code: asString(item.code),
+        article: "",
+        folderName: "",
+        description: "",
+        characteristics: [],
+        imageDataUrl: "",
+        quantity: fallbackQuantity,
+        price: fallbackPrice,
+        amount: roundMoney(fallbackQuantity * fallbackPrice),
+      };
+    }
+
+    const productRecord = asRecord(product);
+    const folderName = asString(asRecord(productRecord.productFolder).name);
+    const imageRows = Array.isArray(asRecord(productRecord.images).rows)
+      ? asRecord(productRecord.images).rows as unknown[]
+      : [];
+    const imageDataUrl = imageRows.length ? await fetchMoySkladImageAsDataUrl(token, asRecord(imageRows[0])) : "";
+    const characteristics = Array.isArray(productRecord.attributes)
+      ? productRecord.attributes
+        .map(asRecord)
+        .map((attribute) => ({
+          name: asString(asRecord(attribute.meta).name),
+          value: formatProposalAttributeValue(attribute.value),
+        }))
+        .filter((attribute) => attribute.name && attribute.value)
+      : [];
+
+    return {
+      name: asString(productRecord.name, fallbackName),
+      code: asString(productRecord.code || item.code),
+      article: asString(productRecord.article),
+      folderName,
+      description: asString(productRecord.description),
+      characteristics,
+      imageDataUrl,
+      quantity: fallbackQuantity,
+      price: fallbackPrice,
+      amount: roundMoney(fallbackQuantity * fallbackPrice),
+    };
+  }));
+}
+
+function buildCommercialProposalHtml(payload: JsonRecord, products: Array<{
+  name: string;
+  code: string;
+  article: string;
+  folderName: string;
+  description: string;
+  characteristics: Array<{ name: string; value: string }>;
+  imageDataUrl: string;
+  quantity: number;
+  price: number;
+  amount: number;
+}>) {
+  const proposalDate = formatInvoiceDate(payload.invoiceDate ?? payload.date);
+  const sellerLine = asString(
+    payload.sellerLine
+      || payload.organizationDetails
+      || process.env.INVOICE_SELLER_LINE
+      || "ИП Матаев Женишбек Камилович, ИНН 20305197500183",
+  );
+  const sellerBank = asString(payload.sellerBank || process.env.INVOICE_SELLER_BANK || "Оптима Банк");
+  const sellerBik = asString(payload.sellerBik || process.env.INVOICE_SELLER_BIK || "109014");
+  const sellerSettlementAccount = asString(payload.sellerSettlementAccount || process.env.INVOICE_SELLER_SETTLEMENT_ACCOUNT || "1091420944220146");
+  const customerName = asString(payload.customerName, "Клиент");
+  const customerPhone = asString(payload.customerPhone);
+  const customerAddress = asString(payload.customerAddress);
+  const proposalTitle = asString(payload.description).trim() || "Подбор техники под ваш запрос";
+  const total = roundMoney(products.reduce((sum, product) => sum + product.amount, 0));
+  const totalQuantity = products.reduce((sum, product) => sum + product.quantity, 0);
+
+  const buildFallbackDescription = (product: typeof products[number]) => {
+    const lead = product.folderName
+      ? `${product.name} из категории «${product.folderName}».`
+      : `${product.name}.`;
+    const features = product.characteristics.slice(0, 4).map((attribute) => `${attribute.name}: ${attribute.value}`);
+    return [lead, features.length ? `Ключевые параметры: ${features.join(", ")}.` : "", product.article ? `Артикул: ${product.article}.` : ""]
+      .filter(Boolean)
+      .join(" ");
+  };
+
+  const sections = products.map((product, index) => {
+    const characteristics = product.characteristics.length
+      ? `<div class="spec-grid">${product.characteristics.map((attribute) => `
+          <div class="spec-card">
+            <span>${escapeHtml(attribute.name)}</span>
+            <strong>${escapeHtml(attribute.value)}</strong>
+          </div>
+        `).join("")}</div>`
+      : `<p class="muted">Характеристики не заполнены в МойСклад.</p>`;
+    const description = product.description.trim() || buildFallbackDescription(product);
+
+    return `
+      <section class="product">
+        <div class="product-head">
+          <div class="product-title">
+            <div class="product-index">Товар ${index + 1}</div>
+            <h2>${escapeHtml(product.name)}</h2>
+            <div class="meta">
+              ${product.folderName ? `<span>Категория: ${escapeHtml(product.folderName)}</span>` : ""}
+              ${product.code ? `<span>Код: ${escapeHtml(product.code)}</span>` : ""}
+              ${product.article ? `<span>Артикул: ${escapeHtml(product.article)}</span>` : ""}
+            </div>
+          </div>
+          <div class="price-box">
+            <span>Цена</span>
+            <strong>${escapeHtml(formatMoney(product.price))} сом</strong>
+            <small>Количество: ${escapeHtml(String(product.quantity))}</small>
+          </div>
+        </div>
+        <div class="product-body">
+          <div class="media">${product.imageDataUrl ? `<img src="${product.imageDataUrl}" alt="${escapeHtml(product.name)}">` : `<div class="image-empty">Нет фото</div>`}</div>
+          <div class="content">
+            <div class="content-block">
+              <div class="block-title">Описание</div>
+              <p>${escapeHtml(description)}</p>
+            </div>
+            <div class="content-block">
+              <div class="block-title">Характеристики</div>
+              ${characteristics}
+            </div>
+            <div class="benefits">
+              <div class="benefit">Актуальная цена: ${escapeHtml(formatMoney(product.price))} сом</div>
+              <div class="benefit">Количество в предложении: ${escapeHtml(String(product.quantity))}</div>
+              <div class="benefit">Сумма позиции: ${escapeHtml(formatMoney(product.amount))} сом</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+  }).join("");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Коммерческое предложение</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; color: #111827; margin: 26px; font-size: 14px; background: #f6f8fc; }
+    .hero { display: grid; gap: 14px; padding: 28px; border: 1px solid #dbe5f1; border-radius: 28px; background: linear-gradient(135deg, #15182b 0%, #3038a4 78%, #6586ff 100%); color: #fff; box-shadow: 0 28px 60px rgba(21, 24, 43, 0.18); }
+    .eyebrow { color: rgba(255,255,255,0.78); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; }
+    h1 { margin: 0; font-size: 38px; line-height: 1.02; }
+    .hero-copy { max-width: 720px; color: rgba(255,255,255,0.86); font-size: 15px; line-height: 1.6; }
+    .hero-grid { display: grid; grid-template-columns: 1.25fr 0.95fr; gap: 18px; }
+    .card { border: 1px solid rgba(255,255,255,0.14); border-radius: 20px; background: rgba(255,255,255,0.08); backdrop-filter: blur(6px); padding: 18px; }
+    .card p, .card strong, .card span, .card small, .meta span { margin: 0; }
+    .card strong { display: block; margin-bottom: 8px; font-size: 18px; }
+    .muted { color: #6b7280; }
+    .card .muted { color: rgba(255,255,255,0.8); }
+    .summary-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .summary-pill { border-radius: 18px; background: #fff; color: #0f172a; padding: 16px 18px; }
+    .summary-pill span { display: block; color: #64748b; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .summary-pill strong { display: block; margin-top: 6px; font-size: 28px; }
+    .summary-pill small { display: block; margin-top: 6px; color: #64748b; }
+    .product { margin-top: 20px; border: 1px solid #dbe5f1; border-radius: 26px; overflow: hidden; background: #fff; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05); }
+    .product-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; padding: 22px 24px; background: linear-gradient(180deg, #fbfcff, #f3f7ff); border-bottom: 1px solid #dbe5f1; }
+    .product-title { min-width: 0; }
+    .product-index { color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+    .product-head h2 { margin: 8px 0 0; font-size: 30px; line-height: 1.08; }
+    .meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; color: #475569; }
+    .meta span { padding: 7px 10px; border-radius: 999px; background: #eef4ff; }
+    .price-box { min-width: 220px; border-radius: 20px; background: linear-gradient(135deg, #15182b 0%, #3038a4 100%); color: #fff; padding: 16px 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+    .price-box strong { display: block; margin-top: 8px; font-size: 28px; line-height: 1; }
+    .price-box small { display: block; margin-top: 6px; color: rgba(255,255,255,0.82); }
+    .product-body { display: grid; grid-template-columns: 320px 1fr; gap: 22px; padding: 24px; }
+    .media { border: 1px solid #dbe5f1; border-radius: 22px; background: linear-gradient(180deg, #ffffff, #f8fbff); min-height: 300px; display: grid; place-items: center; overflow: hidden; }
+    .media img { width: 100%; height: 100%; object-fit: contain; }
+    .image-empty { color: #9ca3af; font-weight: 700; }
+    .content { display: grid; gap: 16px; }
+    .content-block { border: 1px solid #e5edf7; border-radius: 20px; padding: 18px; background: #fff; }
+    .block-title { color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+    .content-block p { margin: 0; line-height: 1.65; white-space: pre-wrap; color: #334155; }
+    .spec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .spec-card { border-radius: 16px; background: #f8fbff; border: 1px solid #e5edf7; padding: 12px 14px; }
+    .spec-card span { display: block; color: #64748b; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .spec-card strong { display: block; margin-top: 6px; color: #0f172a; font-size: 15px; line-height: 1.45; }
+    .benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .benefit { border-radius: 16px; background: #eef4ff; color: #1e3a8a; padding: 12px 14px; font-weight: 700; line-height: 1.45; }
+    .footer-note { margin-top: 18px; color: #64748b; font-size: 12px; line-height: 1.6; }
+    @media print { body { margin: 18px; } }
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <div class="eyebrow">Ordo CRM</div>
+    <h1>Коммерческое предложение</h1>
+    <div class="hero-copy">${escapeHtml(proposalTitle)}</div>
+    <div class="hero-grid">
+      <div class="card">
+        <strong>${escapeHtml(sellerLine)}</strong><br>
+        <span class="muted">${sellerBank ? `Банк: ${escapeHtml(sellerBank)}` : ""}</span><br>
+        <span class="muted">${sellerBik ? `БИК: ${escapeHtml(sellerBik)}` : ""}</span><br>
+        <span class="muted">${sellerSettlementAccount ? `Расчетный счет: ${escapeHtml(sellerSettlementAccount)}` : ""}</span>
+      </div>
+      <div class="card">
+        <strong>${escapeHtml(customerName)}</strong><br>
+        ${customerPhone ? `<span class="muted">Телефон: ${escapeHtml(customerPhone)}</span><br>` : ""}
+        ${customerAddress ? `<span class="muted">Адрес: ${escapeHtml(customerAddress)}</span><br>` : ""}
+        <span class="muted">Дата: ${escapeHtml(proposalDate)}</span><br>
+      </div>
+    </div>
+    <div class="summary-strip">
+      <div class="summary-pill">
+        <span>Сумма предложения</span>
+        <strong>${escapeHtml(formatMoney(total))}</strong>
+        <small>сом</small>
+      </div>
+      <div class="summary-pill">
+        <span>Позиций</span>
+        <strong>${escapeHtml(String(products.length))}</strong>
+        <small>товаров в подборке</small>
+      </div>
+      <div class="summary-pill">
+        <span>Количество</span>
+        <strong>${escapeHtml(String(totalQuantity))}</strong>
+        <small>единиц в предложении</small>
+      </div>
+    </div>
+  </section>
+  ${sections}
+  <div class="footer-note">
+    Предложение сформировано автоматически из Ordo CRM на основе данных МойСклад. Фото, описание и характеристики зависят от заполненности карточек товаров.
+  </div>
+</body>
+</html>`;
+}
+
+function cleanupExpiredCommercialProposalMemory() {
+  const now = Date.now();
+  for (const [token, record] of commercialProposalMemoryStore.entries()) {
+    const expiresAt = Date.parse(asString(record.expiresAt));
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+      commercialProposalMemoryStore.delete(token);
+    }
+  }
+}
+
+function normalizeCommercialProposalRecord(payload: JsonRecord, products: Array<{
+  name: string;
+  code: string;
+  article: string;
+  folderName: string;
+  description: string;
+  characteristics: Array<{ name: string; value: string }>;
+  imageDataUrl: string;
+  quantity: number;
+  price: number;
+  amount: number;
+}>) {
+  const total = roundMoney(products.reduce((sum, product) => sum + product.amount, 0));
+  const totalQuantity = products.reduce((sum, product) => sum + product.quantity, 0);
+
+  return {
+    title: asString(payload.description).trim() || "Коммерческое предложение",
+    proposalDate: formatInvoiceDate(payload.invoiceDate ?? payload.date),
+    customerName: asString(payload.customerName, "Клиент"),
+    customerPhone: asString(payload.customerPhone),
+    customerAddress: asString(payload.customerAddress),
+    sellerLine: asString(
+      payload.sellerLine
+        || payload.organizationDetails
+        || process.env.INVOICE_SELLER_LINE
+        || "ИП Матаев Женишбек Камилович, ИНН 20305197500183",
+    ),
+    sellerBank: asString(payload.sellerBank || process.env.INVOICE_SELLER_BANK || "Оптима Банк"),
+    sellerBik: asString(payload.sellerBik || process.env.INVOICE_SELLER_BIK || "109014"),
+    sellerSettlementAccount: asString(payload.sellerSettlementAccount || process.env.INVOICE_SELLER_SETTLEMENT_ACCOUNT || "1091420944220146"),
+    total,
+    totalQuantity,
+    products: products.map((product) => ({
+      name: product.name,
+      code: product.code,
+      article: product.article,
+      folderName: product.folderName,
+      description: product.description,
+      characteristics: product.characteristics,
+      imageDataUrl: product.imageDataUrl,
+      quantity: product.quantity,
+      price: product.price,
+      amount: product.amount,
+    })),
+  } satisfies JsonRecord;
+}
+
+async function saveCommercialProposalRecord(token: string, record: JsonRecord) {
+  cleanupExpiredCommercialProposalMemory();
+  commercialProposalMemoryStore.set(token, record);
+
+  if (!isSupabaseCrmEnabled()) return;
+
+  try {
+    await supabaseFetch(`/rest/v1/${COMMERCIAL_PROPOSALS_TABLE}`, {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify({
+        token,
+        payload: record,
+        expires_at: asString(record.expiresAt),
+      }),
+    });
+  } catch {
+    // in-memory fallback is enough when the table is absent
+  }
+}
+
+async function loadCommercialProposalRecord(token: string) {
+  cleanupExpiredCommercialProposalMemory();
+
+  if (isSupabaseCrmEnabled()) {
+    try {
+      const rows = await supabaseGet(`/rest/v1/${COMMERCIAL_PROPOSALS_TABLE}`, {
+        token: `eq.${token}`,
+        select: "token,payload,expires_at",
+        limit: "1",
+      }) as JsonRecord[];
+      const row = rows[0];
+      if (row) {
+        const record = {
+          token: asString(row.token, token),
+          expiresAt: asString(row.expires_at),
+          ...(asRecord(row.payload)),
+        } satisfies JsonRecord;
+        const expiresAt = Date.parse(asString(record.expiresAt));
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+          await supabaseFetch(`/rest/v1/${COMMERCIAL_PROPOSALS_TABLE}?token=eq.${encodeURIComponent(token)}`, {
+            method: "DELETE",
+          }).catch(() => {});
+          commercialProposalMemoryStore.delete(token);
+          return null;
+        }
+        commercialProposalMemoryStore.set(token, record);
+        return record;
+      }
+    } catch {
+      // ignore and use memory fallback
+    }
+  }
+
+  const record = commercialProposalMemoryStore.get(token);
+  if (!record) return null;
+  const expiresAt = Date.parse(asString(record.expiresAt));
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    commercialProposalMemoryStore.delete(token);
+    return null;
+  }
+  return record;
+}
+
+async function createCommercialProposalLink(payload: JsonRecord) {
+  const token = randomBytes(18).toString("base64url");
+  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+  const products = await getCommercialProposalProducts(payload);
+  const record = {
+    token,
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    ...normalizeCommercialProposalRecord(payload, products),
+  } satisfies JsonRecord;
+
+  await saveCommercialProposalRecord(token, record);
+
+  return {
+    token,
+    url: `/proposal/${token}`,
+    expiresAt,
+  };
+}
+
 async function renderHtmlToPdf(html: string) {
   const chromePath = process.env.CHROME_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   const workdir = await mkdtemp(path.join(tmpdir(), "ordo-commercial-invoice-"));
@@ -4281,6 +5339,70 @@ async function renderHtmlToPdf(html: string) {
   } finally {
     await rm(workdir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+function setSuperAdminCookie(response: NextResponse, value: string, maxAge: number) {
+  response.cookies.set(SUPER_ADMIN_SESSION_COOKIE, value, {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge,
+    priority: "high",
+  });
+  return response;
+}
+
+function getSuperAdminSession(request: NextRequest) {
+  return verifySuperAdminSessionToken(request.cookies.get(SUPER_ADMIN_SESSION_COOKIE)?.value);
+}
+
+async function handleSuperAdmin(request: NextRequest, parts: string[]) {
+  try {
+    if (parts[1] === "session" && request.method === "GET") {
+      const session = getSuperAdminSession(request);
+      const response = json({ authenticated: Boolean(session), session });
+      response.headers.set("Cache-Control", "no-store");
+      if (!session && request.cookies.has(SUPER_ADMIN_SESSION_COOKIE)) {
+        return setSuperAdminCookie(response, "", 0);
+      }
+      return response;
+    }
+
+    if (parts[1] === "login" && request.method === "POST") {
+      const payload = await body(request);
+      const login = asString(payload.login).trim();
+      const password = asString(payload.password);
+      if (!login || !password) {
+        return error(400, "Введите логин и пароль супер-администратора.");
+      }
+      if (login.length > 200 || password.length > 500) {
+        return error(400, "Логин или пароль превышает допустимую длину.");
+      }
+      if (!authenticateSuperAdmin(login, password)) {
+        return error(401, "Неверный логин или пароль.");
+      }
+
+      const token = createSuperAdminSessionToken();
+      const session = verifySuperAdminSessionToken(token);
+      const response = json({ authenticated: true, session });
+      response.headers.set("Cache-Control", "no-store");
+      return setSuperAdminCookie(response, token, SUPER_ADMIN_SESSION_MAX_AGE_SECONDS);
+    }
+
+    if (parts[1] === "logout" && request.method === "POST") {
+      const response = json({ ok: true });
+      response.headers.set("Cache-Control", "no-store");
+      return setSuperAdminCookie(response, "", 0);
+    }
+  } catch (caught) {
+    if (caught instanceof SuperAdminConfigurationError) {
+      return error(503, caught.message);
+    }
+    throw caught;
+  }
+
+  return error(404, "Super Admin endpoint не найден.");
 }
 
 async function handleCrm(request: NextRequest, parts: string[], data: AppData) {
@@ -4322,6 +5444,12 @@ async function handleCrm(request: NextRequest, parts: string[], data: AppData) {
   if (parts[1] === "users") {
     const actor = requireAdmin(request, data);
     if (!id && request.method === "GET") return json({ users: await getManagedCrmUsers(data) });
+    if (id === "sync-moysklad" && request.method === "POST") {
+      return json(await syncMoySkladEmployeesToSupabaseCrm());
+    }
+    if (!id && request.method === "POST") {
+      return json({ user: await createManagedCrmUser(await body(request), actor) }, 201);
+    }
     if (request.method === "PUT") {
       const payload = await body(request);
       return json({ user: await updateManagedCrmUser(id, payload, data, actor) });
@@ -4671,11 +5799,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     return proxyLegacyBackend(request, parts);
   }
 
-  const data = await readData();
   const url = new URL(request.url);
 
   try {
     if (root === "status") return json({ ok: true, service: "ordo-crm-next" });
+    if (root === "super-admin") return handleSuperAdmin(request, parts);
+    const data = await readData();
     if (root === "crm") return handleCrm(request, parts, data);
     if (root === "bot" && parts[1] === "products" && request.method === "GET") {
       requireBotApiKey(request);
@@ -4727,6 +5856,16 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
       return json(await triggerRetailFiscalizationSafely(document));
     }
     if (root === "payment-types") return json({ paymentTypes: await getMoySkladCustomEntityOptions(String(process.env.MOYSKLAD_PAYMENT_TYPE_CUSTOM_ENTITY_ID || "").trim(), paymentTypes) });
+    if (root === "sales-channels") {
+      const salesChannelEntityId = String(process.env.MOYSKLAD_SALES_CHANNEL_CUSTOM_ENTITY_ID || "").trim();
+      if (!salesChannelEntityId) return json({ salesChannels: [] });
+      return json({
+        salesChannels: await getMoySkladPlainCustomEntityOptions(salesChannelEntityId).catch((caught) => {
+          console.warn("MoySklad sales channels are not available:", caught instanceof Error ? caught.message : caught);
+          return [];
+        }),
+      });
+    }
     if (root === "products") {
       return json({
         products: await getProducts(
@@ -4883,6 +6022,11 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     }
     if (root === "commercial-documents" && parts[1] === "pdf" && request.method === "POST") {
       const payload = await body(request);
+      const customerGroups = Array.isArray(payload.customerGroups) ? payload.customerGroups.map(String).filter(Boolean) : [];
+      if (payload.customerMode === "new" && !customerGroups.includes("организации")) {
+        payload.customerGroups = [...customerGroups, "организации"];
+      }
+      const document = await createCommercialMoySkladDocument(payload);
       const content = await renderHtmlToPdf(buildCommercialInvoice(payload));
       return new NextResponse(content, {
         status: 200,
@@ -4890,8 +6034,45 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
           "Content-Type": "application/pdf",
           "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent("schet-na-oplatu.pdf")}`,
           "Cache-Control": "no-store",
+          "X-Commercial-Document-Type": asString(document.type),
+          "X-Commercial-Document-Name": encodeURIComponent(asString(document.name)),
+          "X-Commercial-Document-Id": asString(document.id),
+          "X-Commercial-Document-Web-Url": encodeURIComponent(asString(document.webUrl)),
+          "X-Commercial-Customer-Href": encodeURIComponent(asString(document.agentHref || payload.customerHref)),
         },
       });
+    }
+    if (root === "commercial-documents" && parts[1] === "proposal.pdf" && request.method === "POST") {
+      const payload = await body(request);
+      const products = await getCommercialProposalProducts(payload);
+      const content = await renderHtmlToPdf(buildCommercialProposalHtml(payload, products));
+      return new NextResponse(content, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent("commercial-proposal.pdf")}`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+    if (root === "commercial-documents" && parts[1] === "proposal-link" && request.method === "POST") {
+      const payload = await body(request);
+      return json(await createCommercialProposalLink(payload));
+    }
+    if (root === "commercial-documents" && parts[1] === "proposal" && parts[2] && request.method === "GET") {
+      const record = await loadCommercialProposalRecord(parts[2]);
+      if (!record) return error(404, "Ссылка на коммерческое предложение истекла или не найдена.");
+      return json(record);
+    }
+    if (root === "commercial-documents" && parts[1] === "orders" && request.method === "GET") {
+      const customerHref = url.searchParams.get("customerHref") || "";
+      return json(await getCommercialCustomerOrders(customerHref));
+    }
+    if (root === "commercial-documents" && parts[1] === "create-demand" && request.method === "POST") {
+      const payload = await body(request);
+      const orderId = asString(payload.orderId).trim();
+      if (!orderId) return error(400, "Не найден заказ покупателя.");
+      return json({ document: await createDemandFromCustomerOrder(orderId, payload) });
     }
     if (root === "commercial-documents") return json({ ok: true, id: randomUUID(), document: { id: randomUUID(), type: "customerorder" } });
   } catch (caught) {

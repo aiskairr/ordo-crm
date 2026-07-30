@@ -21,6 +21,7 @@ import {
   Truck,
   UserCog,
   WalletCards,
+  Shield,
 } from "lucide-react";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
 import { NAV_ITEMS } from "@/src/fsd/shared/config/navigation";
@@ -54,6 +55,7 @@ const icons = [
   SlidersHorizontal,
   Calculator,
   UserCog,
+  Shield,
 ];
 
 const navGroups = [

@@ -330,6 +330,258 @@
   color: #ffffff;
 }
 
+.orderBox {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(255, 255, 255, 0.98));
+  padding: 16px;
+}
+
+.orderBox p,
+.orderBox strong,
+.orderBox span {
+  margin: 0;
+}
+
+.orderBox p {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.orderBox strong {
+  color: #182033;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.orderBox span {
+  color: #697386;
+  font-weight: 750;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgba(9, 16, 30, 0.42);
+  backdrop-filter: blur(10px);
+  padding: 24px;
+}
+
+.modalCard {
+  width: min(1120px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  display: grid;
+  gap: 18px;
+  border: 1px solid rgba(36, 50, 74, 0.1);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.22);
+  padding: 24px;
+}
+
+.modalHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.modalHead > div {
+  display: grid;
+  gap: 8px;
+}
+
+.modalHead p,
+.modalHead h2,
+.modalHead span,
+.modalSuccess strong,
+.modalSuccess span {
+  margin: 0;
+}
+
+.modalHead p {
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.modalHead h2 {
+  color: #182033;
+  font-size: clamp(24px, 4vw, 34px);
+}
+
+.modalHead span,
+.modalSuccess span {
+  color: #697386;
+  font-weight: 750;
+}
+
+.modalActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.modalActions button,
+.modalActions a,
+.modalSuccess a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: #eef4ff;
+  color: #1e40af;
+  font-weight: 900;
+  padding: 0 14px;
+}
+
+.modalActions button:last-child {
+  background: linear-gradient(135deg, #080d1d, #2563eb);
+  color: #ffffff;
+}
+
+.modalClose {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: #eef4ff;
+  color: #1e40af;
+}
+
+.modalActions button:disabled {
+  opacity: 0.6;
+}
+
+.modalSuccess {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95), rgba(243, 248, 255, 0.98));
+  padding: 16px;
+}
+
+.modalSuccess strong {
+  color: #182033;
+  font-size: 18px;
+}
+
+.ordersTable {
+  display: grid;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.ordersHead,
+.ordersRow {
+  display: grid;
+  min-width: 940px;
+  grid-template-columns: minmax(160px, 1.3fr) minmax(130px, 0.9fr) minmax(120px, 0.7fr) minmax(160px, 1fr) minmax(120px, 0.7fr) minmax(170px, 0.9fr);
+  gap: 10px;
+  align-items: start;
+  box-sizing: border-box;
+}
+
+.ordersHead {
+  color: #697386;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  padding: 0 4px;
+}
+
+.ordersRow {
+  border: 1px solid rgba(36, 50, 74, 0.1);
+  border-radius: 16px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.ordersRow > span,
+.ordersRow > div {
+  min-width: 0;
+}
+
+.ordersRow > div:first-child,
+.orderRowActions {
+  display: grid;
+  gap: 4px;
+}
+
+.ordersRow strong,
+.ordersRow span,
+.ordersEmpty {
+  margin: 0;
+}
+
+.ordersRow span {
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ordersRow strong {
+  color: #182033;
+}
+
+.ordersRow span,
+.ordersEmpty {
+  color: #697386;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.ordersRowActive {
+  border-color: rgba(37, 99, 235, 0.35);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08);
+}
+
+.orderRowActions {
+  grid-template-columns: 1fr;
+  align-self: stretch;
+}
+
+.orderRowActions a,
+.orderRowActions button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  background: #eef4ff;
+  color: #1e40af;
+  font-weight: 900;
+  padding: 0 12px;
+}
+
+.orderRowActions button:disabled {
+  opacity: 0.55;
+}
+
+.ordersEmpty {
+  border: 1px dashed rgba(36, 50, 74, 0.12);
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+
 @media (max-width: 1180px) {
   .layout {
     grid-template-columns: 1fr;
@@ -337,6 +589,16 @@
 
   .summary {
     position: static;
+  }
+
+  .modalActions {
+    flex-direction: column;
+  }
+
+  .ordersHead,
+  .ordersRow {
+    min-width: 0;
+    grid-template-columns: 1fr;
   }
 
   .formGrid,

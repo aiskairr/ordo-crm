@@ -8,7 +8,7 @@ import { SaleComposer } from "@/src/fsd/widgets/sale-composer";
 import { AuthRequired, StatusPanel } from "@/src/fsd/shared/ui/status";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText, isUnauthorizedError } from "@/src/fsd/shared/lib/errors";
-import { getEmployees, getPaymentTypes, getRetailStores, getSalesConfig, getSalesSession } from "../api/sales-api";
+import { getEmployees, getPaymentTypes, getRetailStores, getSalesChannels, getSalesConfig, getSalesSession } from "../api/sales-api";
 import styles from "./sales-page.module.css";
 
 export function SalesPage({ mode = "sales" }: { mode?: "sales" | "debt" }) {
@@ -18,8 +18,9 @@ export function SalesPage({ mode = "sales" }: { mode?: "sales" | "debt" }) {
   const employeesQuery = useQuery({ queryKey: ["employees"], queryFn: getEmployees });
   const storesQuery = useQuery({ queryKey: ["retail-stores"], queryFn: getRetailStores });
   const paymentTypesQuery = useQuery({ queryKey: ["payment-types"], queryFn: getPaymentTypes });
+  const salesChannelsQuery = useQuery({ queryKey: ["sales-channels"], queryFn: getSalesChannels });
 
-  const queries = [configQuery, sessionQuery, employeesQuery, storesQuery, paymentTypesQuery];
+  const queries = [configQuery, sessionQuery, employeesQuery, storesQuery, paymentTypesQuery, salesChannelsQuery];
   const isLoading = queries.some((query) => query.isLoading);
   const unauthorizedError = queries.find((query) => query.error && isUnauthorizedError(query.error))?.error;
   const firstError = queries.find((query) => query.error)?.error;
@@ -55,6 +56,7 @@ export function SalesPage({ mode = "sales" }: { mode?: "sales" | "debt" }) {
             currentUser={sessionQuery.data?.user ?? null}
             retailStores={storesQuery.data ?? []}
             paymentTypes={paymentTypesQuery.data ?? []}
+            salesChannels={salesChannelsQuery.data ?? []}
             products={[]}
             customers={[]}
             mode={mode}

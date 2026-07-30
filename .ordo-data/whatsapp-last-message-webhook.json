@@ -1,0 +1,126 @@
+{
+  "receivedAt": "2026-07-21T14:17:59.582Z",
+  "raw": {
+    "id": "evt_01ky2gmt060cpe429hdc790kzb",
+    "timestamp": 1784643479558,
+    "event": "message.any",
+    "session": "default",
+    "me": {
+      "id": "77473917039@c.us",
+      "pushName": "Аминхан",
+      "lid": "200124353487085@lid",
+      "jid": "77473917039:44@s.whatsapp.net"
+    },
+    "payload": {
+      "id": "false_25074052628573@lid_3A147AA205E3C5F28618",
+      "timestamp": 1784643479,
+      "from": "25074052628573@lid",
+      "fromMe": false,
+      "source": "app",
+      "body": "Да",
+      "to": null,
+      "participant": null,
+      "hasMedia": false,
+      "media": null,
+      "ack": 2,
+      "location": null,
+      "vCards": null,
+      "ackName": "DEVICE",
+      "replyTo": null,
+      "_data": {
+        "Info": {
+          "Chat": "25074052628573@lid",
+          "Sender": "25074052628573@lid",
+          "IsFromMe": false,
+          "IsGroup": false,
+          "AddressingMode": "",
+          "SenderAlt": "996708736571@s.whatsapp.net",
+          "RecipientAlt": "",
+          "BroadcastListOwner": "",
+          "BroadcastRecipients": null,
+          "ID": "3A147AA205E3C5F28618",
+          "ServerID": 0,
+          "Type": "text",
+          "PushName": "alina",
+          "Timestamp": "2026-07-21T14:17:59Z",
+          "Category": "",
+          "Multicast": false,
+          "MediaType": "",
+          "Edit": "",
+          "MsgBotInfo": {
+            "EditType": "",
+            "EditTargetID": "",
+            "EditSenderTimestampMS": "0001-01-01T00:00:00Z"
+          },
+          "MsgMetaInfo": {
+            "TargetID": "",
+            "TargetSender": "",
+            "TargetChat": "",
+            "DeprecatedLIDSession": null,
+            "ThreadMessageID": "",
+            "ThreadMessageSenderJID": ""
+          },
+          "VerifiedName": null,
+          "DeviceSentMeta": null
+        },
+        "Message": {
+          "conversation": "Да",
+          "messageContextInfo": {
+            "deviceListMetadata": {
+              "senderKeyHash": "/fdcSWECUeOsHQ==",
+              "senderTimestamp": 1783688446,
+              "recipientKeyHash": "NebfOExgQURBaQ==",
+              "recipientTimestamp": 1784620053
+            },
+            "deviceListMetadataVersion": 2,
+            "messageSecret": "E2oXU45F5pvwcfxhP0dCtP4En+JRZ3qrstAD10acH+E="
+          }
+        },
+        "IsEphemeral": false,
+        "IsViewOnce": false,
+        "IsViewOnceV2": false,
+        "IsViewOnceV2Extension": false,
+        "IsDocumentWithCaption": false,
+        "IsLottieSticker": false,
+        "IsBotInvoke": false,
+        "IsEdit": false,
+        "SourceWebMsg": null,
+        "UnavailableRequestID": "",
+        "RetryCount": 0,
+        "NewsletterMeta": null,
+        "RawMessage": {
+          "conversation": "Да",
+          "messageContextInfo": {
+            "deviceListMetadata": {
+              "senderKeyHash": "/fdcSWECUeOsHQ==",
+              "senderTimestamp": 1783688446,
+              "recipientKeyHash": "NebfOExgQURBaQ==",
+              "recipientTimestamp": 1784620053
+            },
+            "deviceListMetadataVersion": 2,
+            "messageSecret": "E2oXU45F5pvwcfxhP0dCtP4En+JRZ3qrstAD10acH+E="
+          }
+        },
+        "Status": 3
+      }
+    },
+    "environment": {
+      "version": "2026.6.2",
+      "engine": "GOWS",
+      "tier": "CORE",
+      "browser": null,
+      "platform": "linux/x64",
+      "worker": {
+        "id": null
+      }
+    }
+  },
+  "parsed": {
+    "id": "false_25074052628573@lid_3A147AA205E3C5F28618",
+    "chatId": "25074052628573@lid",
+    "phone": "25074052628573",
+    "customerName": "",
+    "text": "Да",
+    "createdAt": "2026-07-21T14:17:59.000Z"
+  }
+}

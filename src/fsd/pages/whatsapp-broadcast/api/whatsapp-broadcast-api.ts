@@ -21,6 +21,30 @@ export type WhatsappInboxConversation = {
   draftUpdatedAt: string;
   messages: WhatsappInboxMessage[];
 };
+export type WhatsappWebhookHealth = {
+  ok: boolean;
+  error?: string;
+  message?: string;
+  autoReplyEnabled: boolean;
+  expectedWebhookUrl: string;
+  expectedEvents: string[];
+  session: null | {
+    name: string;
+    status: string;
+    me: unknown;
+    engine: unknown;
+    webhooks: Array<{ url?: string; events?: string[] }>;
+    webhookConfigured: boolean;
+    webhookEventsMatch: boolean;
+  };
+  lastWebhook: null | {
+    receivedAt?: string;
+    parsed?: unknown;
+    skipped?: boolean;
+    skipReason?: string;
+    raw?: unknown;
+  };
+};
 type UnknownRecord = Record<string, unknown>;
 const asRecord = (value: unknown): UnknownRecord => (value && typeof value === "object" ? (value as UnknownRecord) : {});
 const asArray = (value: unknown, key: string) => Array.isArray(value) ? value : Array.isArray(asRecord(value)[key]) ? asRecord(value)[key] as unknown[] : [];
@@ -46,6 +70,25 @@ async function waha<T>(baseUrl: string, apiKey: string, path: string, options: R
   return data as T;
 }
 
+async function wahaSessionApi<T>(
+  method: "GET" | "POST",
+  payload: { baseUrl: string; apiKey: string; session: string; action?: "start" | "stop" | "reconnect" },
+): Promise<T> {
+  if (method === "GET") {
+    const query = new URLSearchParams({
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      session: payload.session,
+    });
+    return apiClient<T>(`/api/whatsapp/session?${query.toString()}`);
+  }
+
+  return apiClient<T>("/api/whatsapp/session", {
+    method: "POST",
+    body: payload,
+  });
+}
+
 export type WahaRecipient = { phone: string; name?: string; chatId?: string };
 
 export type WahaBatchPayload = {
@@ -57,12 +100,16 @@ export type WahaBatchPayload = {
 };
 
 export const getWahaSession = (baseUrl: string, apiKey: string, session: string) => {
-  const query = new URLSearchParams();
-  if (session) query.set("session", session);
-  return waha<unknown>(baseUrl, apiKey, `/api/waha/session?${query.toString()}`);
+  return wahaSessionApi<unknown>("GET", { baseUrl, apiKey, session });
 };
 export const startWahaSession = (baseUrl: string, apiKey: string, session: string) => {
-  return waha<unknown>(baseUrl, apiKey, "/api/waha/session/start", { method: "POST", body: JSON.stringify({ session }) });
+  return wahaSessionApi<unknown>("POST", { baseUrl, apiKey, session, action: "start" });
+};
+export const stopWahaSession = (baseUrl: string, apiKey: string, session: string) => {
+  return wahaSessionApi<unknown>("POST", { baseUrl, apiKey, session, action: "stop" });
+};
+export const reconnectWahaSession = async (baseUrl: string, apiKey: string, session: string) => {
+  return wahaSessionApi<unknown>("POST", { baseUrl, apiKey, session, action: "reconnect" });
 };
 export const sendWahaText = (baseUrl: string, apiKey: string, payload: { phone?: string; chatId?: string; text: string; session: string }) => {
   return waha<unknown>(baseUrl, apiKey, "/api/send-text", { method: "POST", body: JSON.stringify(payload) });
@@ -116,3 +163,6 @@ export const sendWhatsappAiReply = (payload: {
   customerName?: string;
   customerTypeLabel?: string;
 }) => apiClient<{ ok: boolean; chatId: string }>("/api/whatsapp/send-ai", { method: "POST", body: payload });
+
+export const getWhatsappWebhookHealth = () => apiClient<WhatsappWebhookHealth>("/api/whatsapp/webhook-health");
+export const registerWhatsappWebhook = () => apiClient<WhatsappWebhookHealth>("/api/whatsapp/webhook-health", { method: "POST" });

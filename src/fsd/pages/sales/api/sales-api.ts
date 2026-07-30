@@ -182,6 +182,16 @@ export async function getPaymentTypes(): Promise<PaymentTypeOption[]> {
     .filter((item) => item.id);
 }
 
+export async function getSalesChannels(): Promise<SelectOption[]> {
+  try {
+    return asArray(await apiClient<unknown>("/api/sales-channels"), "salesChannels")
+      .map(normalizeOption)
+      .filter((item) => item.id);
+  } catch {
+    return [];
+  }
+}
+
 export async function getProducts(search = "", storeHref = "", branchName = ""): Promise<Product[]> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);

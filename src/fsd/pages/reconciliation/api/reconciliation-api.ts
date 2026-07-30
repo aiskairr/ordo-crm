@@ -88,7 +88,7 @@ export async function getReconciliationDebtors(params: { search: string; custome
   const query = new URLSearchParams({ limit: String(params.limit ?? 60), offset: String(params.offset ?? 0) });
   if (params.search) query.set("search", params.search);
   if (params.customerType) query.set("customerType", params.customerType);
-  const payload = asRecord(await apiClient<unknown>(`/api/reconciliation/debtors?${query.toString()}`));
+  const payload = asRecord(await apiClient<unknown>(`/api/reconciliation/debtors?${query.toString()}`, { timeoutMs: 60000 }));
   const totals = asRecord(payload.totals);
   const page = asRecord(payload.page);
   return {
@@ -107,7 +107,7 @@ export async function getReconciliationDebtors(params: { search: string; custome
 }
 
 export async function getReconciliationDetails(id: string): Promise<ReconciliationDetails> {
-  const payload = asRecord(await apiClient<unknown>(`/api/reconciliation/debtors/${encodeURIComponent(id)}`));
+  const payload = asRecord(await apiClient<unknown>(`/api/reconciliation/debtors/${encodeURIComponent(id)}`, { timeoutMs: 60000 }));
   const totals = asRecord(payload.totals);
   const mapDoc = (value: unknown) => {
     const row = asRecord(value);

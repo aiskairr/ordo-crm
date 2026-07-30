@@ -16,7 +16,7 @@ export type CommercialItem = {
 };
 
 export type CommercialPayload = {
-  documentType: "demand";
+  documentType: "customerorder" | "demand";
   description: string;
   customerMode: "new" | "existing";
   customerName: string;
@@ -42,6 +42,42 @@ export type CommercialPdfResult = {
   fileName: string;
   documentName: string;
   documentWebUrl: string;
+  documentType: string;
+  documentId: string;
+  customerHref: string;
+};
+
+export type CommercialShipmentResult = {
+  documentId: string;
+  documentName: string;
+  documentType: string;
+  documentWebUrl: string;
+};
+
+export type CommercialProposalResult = {
+  blob: Blob;
+  fileName: string;
+};
+
+export type CommercialProposalLinkResult = {
+  token: string;
+  url: string;
+  expiresAt: string;
+};
+
+export type CommercialOrderRow = {
+  id: string;
+  name: string;
+  moment: string;
+  sum: number;
+  paid: number;
+  unpaid: number;
+  shipped: number;
+  unshipped: number;
+  stateName: string;
+  organizationName: string;
+  customerName: string;
+  webUrl: string;
 };
 
 export type CommercialCustomer = Customer & {
@@ -171,8 +207,107 @@ export async function createCommercialPdf(payload: CommercialPayload): Promise<C
   return {
     blob: await response.blob(),
     fileName: getHeaderFilename(response.headers.get("Content-Disposition")),
+    documentType: response.headers.get("X-Commercial-Document-Type") || "",
+    documentId: response.headers.get("X-Commercial-Document-Id") || "",
     documentName: decodeURIComponent(response.headers.get("X-Commercial-Document-Name") || ""),
     documentWebUrl: decodeURIComponent(response.headers.get("X-Commercial-Document-Web-Url") || ""),
+    customerHref: decodeURIComponent(response.headers.get("X-Commercial-Customer-Href") || ""),
+  };
+}
+
+function normalizeOrderRow(value: unknown): CommercialOrderRow {
+  const record = asRecord(value);
+  return {
+    id: asString(record.id),
+    name: asString(record.name),
+    moment: asString(record.moment),
+    sum: asNumber(record.sum),
+    paid: asNumber(record.paid),
+    unpaid: asNumber(record.unpaid),
+    shipped: asNumber(record.shipped),
+    unshipped: asNumber(record.unshipped),
+    stateName: asString(record.stateName),
+    organizationName: asString(record.organizationName),
+    customerName: asString(record.customerName),
+    webUrl: asString(record.webUrl),
+  };
+}
+
+export async function getCommercialOrders(customerHref: string): Promise<CommercialOrderRow[]> {
+  if (!customerHref.trim()) return [];
+  const params = new URLSearchParams({ customerHref });
+  return asArray(await apiClient<unknown>(`/api/commercial-documents/orders?${params.toString()}`), "orders")
+    .map(normalizeOrderRow)
+    .filter((item) => item.id);
+}
+
+export async function createCommercialDemandFromOrder(orderId: string, storeHref = ""): Promise<CommercialShipmentResult> {
+  const response = await fetch("/api/commercial-documents/create-demand", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ orderId, storeHref }),
+  });
+
+  const data = asRecord(await response.json().catch(() => ({})));
+  if (!response.ok) {
+    throw new Error(asString(data.error || data.message) || "Не удалось создать отгрузку.");
+  }
+
+  const document = asRecord(data.document);
+  return {
+    documentId: asString(document.id),
+    documentName: asString(document.name),
+    documentType: asString(document.type),
+    documentWebUrl: asString(document.webUrl),
+  };
+}
+
+export async function createCommercialProposalPdf(payload: CommercialPayload): Promise<CommercialProposalResult> {
+  const response = await fetch("/api/commercial-documents/proposal.pdf", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/pdf, application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const data = asRecord(await response.json().catch(() => ({})));
+    throw new Error(asString(data.error || data.message) || "Не удалось сформировать коммерческое предложение.");
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: getHeaderFilename(response.headers.get("Content-Disposition")),
+  };
+}
+
+export async function createCommercialProposalLink(payload: CommercialPayload): Promise<CommercialProposalLinkResult> {
+  const response = await fetch("/api/commercial-documents/proposal-link", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = asRecord(await response.json().catch(() => ({})));
+  if (!response.ok) {
+    throw new Error(asString(data.error || data.message) || "Не удалось создать веб-КП.");
+  }
+
+  return {
+    token: asString(data.token),
+    url: asString(data.url),
+    expiresAt: asString(data.expiresAt),
   };
 }
 

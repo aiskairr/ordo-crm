@@ -80,6 +80,7 @@
         "customsCalculator",
         "audit",
         "users",
+        "superAdmin",
         "about"
       ],
       "active": true,
@@ -173,7 +174,15 @@
     "f64e9618-a6f1-43e2-9ee9-f315b5bc1007": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
     "63ece183-882e-4807-b4b0-da58b57159ff": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
     "066dd11d-af16-4716-8d9a-93a3deb11094": "8e18ae57-76cc-4412-b32e-538368f46a78",
-    "65fc2e60-962f-4db0-854f-002cd54d7648": "8e18ae57-76cc-4412-b32e-538368f46a78"
+    "ae73b48e-93f7-4fe7-9690-0953d5ca71db": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "bc768f16-8ba5-4171-a538-19012e2cd25a": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "5e24fe9e-1e3f-4089-8bff-e558055509fc": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "82e11bc5-cdaa-4189-89b9-7231eb98124b": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "d2166df0-c823-4fba-94a6-5e079bb39859": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "8a933571-f6fa-4669-aad8-ff1d0a70f1fc": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "2c62d747-d551-4f95-b788-3f8e424386c4": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "53f0ae9d-be6f-4aa9-8b4f-5c813f811a32": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "49deca7f-ee79-49bf-93a5-bd5ba85f732d": "8e18ae57-76cc-4412-b32e-538368f46a78"
   },
   "uiSettings": {},
   "expenses": [],
@@ -264,5 +273,106 @@
     ]
   },
   "customsHistory": [],
-  "orders": []
+  "orders": [],
+  "companies": [
+    {
+      "id": "a15c5d0f-752d-4ef6-ba2d-bf381925e506",
+      "name": "Кара-Балта",
+      "slug": "кара-балта",
+      "status": "active",
+      "businessType": "retail",
+      "plan": "business",
+      "userLimit": 999,
+      "enabledModules": [
+        "sales",
+        "debtSale",
+        "deliveries",
+        "attendance",
+        "reports",
+        "bankCommissions",
+        "reportProfit",
+        "expenses",
+        "payroll",
+        "commercialDocuments",
+        "reconciliation",
+        "whatsappBroadcast",
+        "priceFormula",
+        "customsCalculator",
+        "audit",
+        "users",
+        "superAdmin",
+        "about"
+      ],
+      "ownerName": "Эля",
+      "ownerPhone": "+996702778130",
+      "note": "",
+      "createdAt": "2026-07-15T15:14:50.779Z",
+      "branches": [
+        {
+          "key": "кара-балта",
+          "label": "Кара-балта"
+        }
+      ],
+      "connections": {
+        "moySkladToken": "",
+        "organizationHref": "",
+        "storeHref": "",
+        "retailStoreHref": "",
+        "supabaseUrl": "",
+        "wahaBaseUrl": "",
+        "wahaSession": "default"
+      }
+    },
+    {
+      "id": "default-company",
+      "name": "Текущая компания",
+      "slug": "default-company",
+      "status": "active",
+      "businessType": "retail",
+      "plan": "business",
+      "userLimit": 999,
+      "enabledModules": [
+        "sales",
+        "debtSale",
+        "deliveries",
+        "attendance",
+        "reports",
+        "bankCommissions",
+        "reportProfit",
+        "expenses",
+        "payroll",
+        "commercialDocuments",
+        "reconciliation",
+        "whatsappBroadcast",
+        "customsCalculator",
+        "audit",
+        "users",
+        "superAdmin",
+        "about"
+      ],
+      "ownerName": "",
+      "ownerPhone": "",
+      "note": "Базовый аккаунт текущего проекта.",
+      "createdAt": "2026-07-15T15:03:11.396Z",
+      "branches": [
+        {
+          "key": "аю-гранд",
+          "label": "Аю-Гранд"
+        },
+        {
+          "key": "беш-сары",
+          "label": "Беш-Сары"
+        }
+      ],
+      "connections": {
+        "moySkladToken": "4f9678...",
+        "organizationHref": "https://api.moysklad.ru/api/remap/1.2/entity/organization/30afc651-9200-11f0-0a80-0dea00286a7d",
+        "storeHref": "https://api.moysklad.ru/api/remap/1.2/entity/store/45af18c8-9e9e-11f0-0a80-0d1800081476",
+        "retailStoreHref": "",
+        "supabaseUrl": "https://ytbmwnwrqpxophchnvii.supabase.co",
+        "wahaBaseUrl": "http://127.0.0.1:3001",
+        "wahaSession": "default"
+      }
+    }
+  ]
 }

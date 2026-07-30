@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Archive,
@@ -22,8 +22,11 @@ import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import {
   getWahaSession,
+  getWhatsappWebhookHealth,
   getWhatsappInbox,
   getWhatsappCustomers,
+  registerWhatsappWebhook,
+  reconnectWahaSession,
   sendWahaBatch,
   sendWhatsappAiReply,
   startWahaSession,
@@ -34,11 +37,18 @@ import styles from "./whatsapp-broadcast-page.module.css";
 
 const digits = (value: string) => value.replace(/\D/g, "");
 const settingsKey = "ordoWahaBackendSettings";
+type StoredWahaSettings = { url?: string; apiKey?: string; session?: string };
 
-const getStoredWahaSettings = () => {
+const getStoredWahaSettings = (): StoredWahaSettings => {
   if (typeof window === "undefined") return {};
   try {
-    return JSON.parse(localStorage.getItem(settingsKey) || "{}") as { url?: string; apiKey?: string; session?: string };
+    const parsed = JSON.parse(localStorage.getItem(settingsKey) || "{}") as StoredWahaSettings;
+    const url =
+      parsed.url === "http://127.0.0.1:3300" || parsed.url === "http://localhost:3300"
+        ? "http://127.0.0.1:3001"
+        : parsed.url;
+    const apiKey = parsed.apiKey === "change-me" ? "" : parsed.apiKey;
+    return { ...parsed, url, apiKey };
   } catch {
     return {};
   }
@@ -67,10 +77,11 @@ const formatMessageTime = (value: string) =>
     : "";
 export function WhatsappBroadcastPage() {
   const { showToast } = useToast();
+  const chatCanvasRef = useRef<HTMLElement | null>(null);
   const storedSettings = getStoredWahaSettings();
   const [search, setSearch] = useState("");
   const [customerType, setCustomerType] = useState("");
-  const [baseUrl, setBaseUrl] = useState(storedSettings.url || "http://127.0.0.1:3300");
+  const [baseUrl, setBaseUrl] = useState(storedSettings.url || "http://127.0.0.1:3001");
   const [apiKey, setApiKey] = useState(storedSettings.apiKey || "change-me");
   const [session, setSession] = useState(storedSettings.session || "default");
   const [selected, setSelected] = useState<WhatsappCustomer | null>(null);
@@ -84,6 +95,7 @@ export function WhatsappBroadcastPage() {
   const [videoLinks, setVideoLinks] = useState("");
   const [dryRun, setDryRun] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [qrVersion, setQrVersion] = useState(0);
 
   useEffect(() => {
     localStorage.setItem(settingsKey, JSON.stringify({ url: baseUrl, apiKey, session }));
@@ -101,6 +113,11 @@ export function WhatsappBroadcastPage() {
   const sessionQuery = useQuery({
     queryKey: ["waha-session", baseUrl, apiKey, session],
     queryFn: () => getWahaSession(baseUrl, apiKey, session),
+    retry: false,
+  });
+  const webhookHealthQuery = useQuery({
+    queryKey: ["whatsapp-webhook-health"],
+    queryFn: getWhatsappWebhookHealth,
     retry: false,
   });
 
@@ -121,13 +138,52 @@ export function WhatsappBroadcastPage() {
 
   const startMutation = useMutation({
     mutationFn: () => startWahaSession(baseUrl, apiKey, session),
-    onSuccess: () => sessionQuery.refetch(),
+    onSuccess: () => {
+      showToast({ tone: "success", title: "Сессия WAHA запущена" });
+      sessionQuery.refetch();
+      setQrVersion((value) => value + 1);
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось запустить WAHA", description: getErrorText(error) }),
+  });
+
+  const reconnectMutation = useMutation({
+    mutationFn: () => reconnectWahaSession(baseUrl, apiKey, session),
+    onSuccess: () => {
+      showToast({
+        tone: "success",
+        title: "Сессия переподключается",
+        description: "Если WhatsApp запросит повторную авторизацию, пересканируй QR.",
+      });
+      sessionQuery.refetch();
+      inboxQuery.refetch();
+      setQrVersion((value) => value + 1);
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось переподключить WAHA", description: getErrorText(error) }),
+  });
+  const registerWebhookMutation = useMutation({
+    mutationFn: registerWhatsappWebhook,
+    onSuccess: (data) => {
+      showToast({
+        tone: "success",
+        title: "Webhook обновлен",
+        description: data.message || "WAHA теперь должен слать входящие сообщения в CRM.",
+      });
+      webhookHealthQuery.refetch();
+      sessionQuery.refetch();
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось обновить webhook", description: getErrorText(error) }),
   });
 
   const selectedConversation = useMemo(
     () => inboxQuery.data?.find((conversation) => conversation.chatId === selectedChatId) ?? null,
     [inboxQuery.data, selectedChatId],
   );
+
+  useEffect(() => {
+    const node = chatCanvasRef.current;
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+  }, [selectedConversation?.chatId, selectedConversation?.messages.length]);
 
   const filteredInbox = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -187,7 +243,27 @@ export function WhatsappBroadcastPage() {
 
   const selectedPhone = selectedConversation?.phone || selected?.phone || selected?.whatsappPhone || manualPhone;
   const selectedName = selectedConversation?.customerName || selected?.name || manualName || "Чат не выбран";
-  const sessionStatus = sessionQuery.isError ? "Не подключен" : sessionQuery.isLoading ? "Проверяю..." : "WAHA доступен";
+  const sessionRecord = (sessionQuery.data && typeof sessionQuery.data === "object") ? (sessionQuery.data as { status?: string }) : null;
+  const sessionState = String(sessionRecord?.status || "").trim().toUpperCase();
+  const sessionStatus = sessionQuery.isError
+    ? "Не подключен"
+    : sessionQuery.isLoading
+      ? "Проверяю..."
+      : sessionState
+        ? `WAHA: ${sessionState}`
+        : "WAHA доступен";
+  const qrUrl = useMemo(() => {
+    const query = new URLSearchParams({
+      baseUrl,
+      session,
+      format: "qr",
+      v: String(qrVersion),
+    });
+    return `/api/whatsapp/session?${query.toString()}`;
+  }, [baseUrl, qrVersion, session]);
+  const lastWebhookAt = webhookHealthQuery.data?.lastWebhook?.receivedAt
+    ? formatMessageTime(String(webhookHealthQuery.data.lastWebhook.receivedAt))
+    : "";
   const hasSelectedChat = Boolean(selectedConversation || selected || manualPhone);
   const previewRecipients = visibleRecipients.slice(0, 120);
   return (
@@ -295,7 +371,7 @@ export function WhatsappBroadcastPage() {
             </button>
           </header>
 
-          <section className={styles.chatCanvas}>
+          <section ref={chatCanvasRef} className={styles.chatCanvas}>
             {selectedConversation ? (
               selectedConversation.messages.map((entry) => (
                 <article key={entry.id} className={entry.direction === "incoming" ? styles.bubbleIn : styles.bubbleOut}>
@@ -415,12 +491,67 @@ export function WhatsappBroadcastPage() {
                   <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="API key" />
                   <input value={session} onChange={(event) => setSession(event.target.value)} placeholder="Session" />
                   <div className={styles.connectionActions}>
-                    <button onClick={() => sessionQuery.refetch()} type="button">
+                    <button onClick={() => { sessionQuery.refetch(); setQrVersion((value) => value + 1); }} type="button">
                       Проверить
                     </button>
                     <button onClick={() => startMutation.mutate()} type="button">
                       Подключить
                     </button>
+                    <button onClick={() => reconnectMutation.mutate()} type="button" disabled={reconnectMutation.isPending}>
+                      Переподключить
+                    </button>
+                  </div>
+                </div>
+                <div className={styles.qrCard}>
+                  <div className={styles.qrHead}>
+                    <div>
+                      <strong>QR для сканирования</strong>
+                      <p>{sessionState === "SCAN_QR_CODE" ? "Открой WhatsApp на телефоне и сканируй код." : sessionStatus}</p>
+                    </div>
+                    <button onClick={() => setQrVersion((value) => value + 1)} type="button">
+                      <RefreshCw size={16} />
+                      Обновить QR
+                    </button>
+                  </div>
+                  {sessionState === "SCAN_QR_CODE" ? (
+                    <div className={styles.qrFrame}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={qrUrl} alt="QR код WhatsApp" />
+                    </div>
+                  ) : (
+                    <div className={styles.qrPlaceholder}>
+                      <Bot size={34} />
+                      <span>QR появится, когда сессия перейдет в режим подключения.</span>
+                    </div>
+                  )}
+                </div>
+                <div className={styles.webhookCard}>
+                  <div className={styles.webhookHead}>
+                    <div>
+                      <strong>Webhook WAHA</strong>
+                      <p>
+                        {webhookHealthQuery.data?.session?.webhookConfigured
+                          ? "Webhook привязан к CRM."
+                          : webhookHealthQuery.isLoading
+                            ? "Проверяю webhook..."
+                            : "Webhook не привязан или смотрит не туда."}
+                      </p>
+                    </div>
+                    <div className={styles.connectionActions}>
+                      <button onClick={() => webhookHealthQuery.refetch()} type="button">
+                        Проверить webhook
+                      </button>
+                      <button onClick={() => registerWebhookMutation.mutate()} type="button" disabled={registerWebhookMutation.isPending}>
+                        Перерегистрировать
+                      </button>
+                    </div>
+                  </div>
+                  <div className={styles.webhookMeta}>
+                    <span><b>URL:</b> {webhookHealthQuery.data?.expectedWebhookUrl || "—"}</span>
+                    <span><b>События:</b> {(webhookHealthQuery.data?.expectedEvents || []).join(", ") || "—"}</span>
+                    <span><b>Автоответ:</b> {webhookHealthQuery.data?.autoReplyEnabled ? "включен" : "выключен"}</span>
+                    <span><b>Последний webhook:</b> {lastWebhookAt || "не было"}</span>
+                    <span><b>Причина skip:</b> {String(webhookHealthQuery.data?.lastWebhook?.skipReason || "—")}</span>
                   </div>
                 </div>
               </section>

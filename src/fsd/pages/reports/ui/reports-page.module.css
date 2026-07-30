@@ -472,12 +472,29 @@
 
 .printSheet,
 .waybillSheet {
+  box-sizing: border-box;
   width: 210mm;
   min-height: 297mm;
-  padding: 12mm;
+  padding: 8mm;
   margin: 0 auto;
   background: white;
   color: black;
+  font-family: Arial, sans-serif;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.printSheet h1 {
+  margin: 0 0 8px;
+  color: #111;
+  font-size: 22px;
+  text-align: center;
+}
+
+.printSheet > p {
+  margin: 0 0 14px;
+  color: #111;
+  text-align: center;
 }
 
 .receiptSheet {
@@ -489,22 +506,40 @@
   font-size: 11px;
 }
 
+.printPaymentSummary {
+  margin: 0 0 14px;
+  border: 1px solid #2f2f2f;
+}
+
 .printPaymentSummary h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
+  margin: 0;
+  background: #c9c9c9 !important;
+  color: #111 !important;
+  font-size: 13px;
+  padding: 7px 10px;
+  text-align: left;
 }
 
 .printPaymentList {
   display: grid;
-  gap: 4px;
-  margin-bottom: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
 }
 
 .printPaymentList p {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   margin: 0;
+  border-right: 1px solid #2f2f2f;
+  border-top: 1px solid #2f2f2f;
+  color: #111;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.printPaymentList p:nth-child(3n) {
+  border-right: 0;
 }
 
 .receiptCenter {
@@ -581,17 +616,28 @@
 }
 
 .reportDocumentRow td {
-  font-weight: 700;
-  background: #f2f4f8;
+  background: #233a9f !important;
+  color: #ffffff !important;
+  font-weight: 800;
+  vertical-align: middle;
 }
 
 .reportProductRow td {
-  background: white;
+  background: #ffffff !important;
+  color: #111111 !important;
+  font-weight: 500;
+}
+
+.reportProductRow td:nth-child(2) {
+  font-weight: 800;
 }
 
 .printHeadMain th,
 .printHeadSub th {
-  background: #edf2fb;
+  background: #c9c9c9 !important;
+  color: #111111 !important;
+  font-weight: 800;
+  text-align: center;
 }
 
 .empty {
@@ -642,21 +688,40 @@
 }
 
 @media print {
-  .page * {
-    visibility: hidden;
+  .page > :not(.printReport) {
+    display: none !important;
   }
 
-  .printReport,
-  .printReport * {
-    visibility: visible;
+  .page {
+    display: block !important;
+    width: auto !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
   }
 
   .printReport {
     display: block;
-    position: absolute;
-    inset: 0;
+    position: static;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
     background: white;
     color: black;
+  }
+
+  .reportPrintReport {
+    overflow: visible;
+  }
+
+  .reportPrintReport .printSheet {
+    width: auto;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
   }
 
   .reportPanel {
@@ -665,8 +730,18 @@
 
   .printSheet table,
   .waybillSheet table {
+    min-width: 0;
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
+    font-size: 8.5px;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .printSheet thead,
+  .printSheet tfoot {
+    display: table-row-group;
   }
 
   .printSheet th,
@@ -674,16 +749,22 @@
   .waybillSheet th,
   .waybillSheet td {
     border: 1px solid #000;
-    padding: 4px;
-    font-size: 10px;
+    padding: 4px 3px;
+    font-size: 8.5px;
+    line-height: 1.15;
     text-align: left;
     vertical-align: top;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
   .waybillSheet h1,
   .printSheet h1 {
     margin: 0 0 8px;
     font-size: 20px;
+    text-align: center;
   }
 
   .waybillSheet p,
@@ -693,12 +774,11 @@
 
   .receiptPrintReport {
     width: 80mm;
-    left: 50%;
-    transform: translateX(-50%);
+    margin: 0 auto;
   }
 
   @page {
-    size: A4;
-    margin: 0;
+    size: A4 landscape;
+    margin: 7mm;
   }
 }

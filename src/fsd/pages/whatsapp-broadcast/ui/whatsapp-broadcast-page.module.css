@@ -333,15 +333,33 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   gap: 10px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(134, 150, 160, 0.5) transparent;
   background:
     radial-gradient(circle at 25% 20%, rgba(0, 168, 132, 0.08), transparent 28%),
     radial-gradient(circle at 78% 74%, rgba(80, 80, 80, 0.16), transparent 26%),
     #0b141a;
   padding: 26px;
+}
+
+.chatCanvas::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chatCanvas::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chatCanvas::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(134, 150, 160, 0.42);
+  background-clip: padding-box;
 }
 
 .blank {
@@ -517,6 +535,127 @@
 
 .fillButton {
   background: #233138;
+}
+
+.qrCard {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #25323a;
+  border-radius: 16px;
+  background: #111b21;
+  padding: 14px;
+}
+
+.webhookCard {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #25323a;
+  border-radius: 16px;
+  background: #111b21;
+  padding: 14px;
+}
+
+.webhookHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.webhookHead strong,
+.webhookHead p {
+  margin: 0;
+}
+
+.webhookHead strong {
+  display: block;
+  color: #f0f2f5;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.webhookHead p {
+  margin-top: 4px;
+  color: #8696a0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.webhookMeta {
+  display: grid;
+  gap: 8px;
+  color: #c7d1d6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.webhookMeta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.qrHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.qrHead strong,
+.qrHead p {
+  margin: 0;
+}
+
+.qrHead strong {
+  display: block;
+  color: #f0f2f5;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.qrHead p {
+  margin-top: 4px;
+  color: #8696a0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.qrHead button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: #2a3942;
+  color: #d1d7db;
+  font-weight: 850;
+  padding: 0 12px;
+}
+
+.qrFrame,
+.qrPlaceholder {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  border: 1px dashed #314046;
+  border-radius: 16px;
+  background: #0b141a;
+}
+
+.qrFrame img {
+  width: min(100%, 260px);
+  height: auto;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+}
+
+.qrPlaceholder {
+  gap: 10px;
+  color: #8696a0;
+  padding: 20px;
+  text-align: center;
 }
 
 .check {

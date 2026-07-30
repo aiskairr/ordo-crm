@@ -176,24 +176,24 @@ function WaybillPrint({ row }: { row: ReportRow }) {
 
 function ReportPrint({ rows, totals, canViewProfit, reportTitle, dateFrom, dateTo }: Omit<ReportsPrintProps, "mode" | "row" | "reportType">) {
   const paymentSummary = buildPaymentSummary(rows);
-  const productNameColSpan = canViewProfit ? 3 : 4;
-  const totalColSpan = canViewProfit ? 8 : 9;
+  const productNameColSpan = canViewProfit ? 4 : 3;
+  const totalSpacerColSpan = 7;
 
   return (
     <div className={styles.printSheet}>
       <h1>{reportTitle}</h1>
       <p>Период: {dateOnly(dateFrom)} - {dateOnly(dateTo)}</p>
 
-      {paymentSummary.length ? (
-        <section className={styles.printPaymentSummary}>
-          <h2>Оплата по банкам и способам</h2>
-          <div className={styles.printPaymentList}>
-            {paymentSummary.map((item) => (
+      <section className={styles.printPaymentSummary}>
+        <h2>Оплата по банкам и способам</h2>
+        <div className={styles.printPaymentList}>
+          {paymentSummary.length
+            ? paymentSummary.map((item) => (
               <p key={item.name}><span>{item.name}</span><strong>{money(item.amount)}</strong></p>
-            ))}
-          </div>
-        </section>
-      ) : null}
+            ))
+            : <p><span>Нет данных об оплате</span><strong>{money(0)}</strong></p>}
+        </div>
+      </section>
 
       <table>
         <thead>
@@ -257,10 +257,9 @@ function ReportPrint({ rows, totals, canViewProfit, reportTitle, dateFrom, dateT
           <tr>
             <td colSpan={2}>Итого</td>
             <td>{money(totals.amount)}</td>
-            <td colSpan={totalColSpan}></td>
+            <td colSpan={totalSpacerColSpan}></td>
             {canViewProfit ? <td>{money(totals.netProfit)}</td> : null}
             <td>{money(totals.unpaid)}</td>
-            <td></td>
           </tr>
         </tfoot>
       </table>
@@ -269,7 +268,11 @@ function ReportPrint({ rows, totals, canViewProfit, reportTitle, dateFrom, dateT
 }
 
 export function ReportsPrint({ mode, row, rows, totals, canViewProfit, reportTitle, dateFrom, dateTo }: ReportsPrintProps) {
-  const printClassName = mode === "receipt" ? `${styles.printReport} ${styles.receiptPrintReport}` : styles.printReport;
+  const printClassName = mode === "receipt"
+    ? `${styles.printReport} ${styles.receiptPrintReport}`
+    : mode === "report"
+      ? `${styles.printReport} ${styles.reportPrintReport}`
+      : styles.printReport;
   return (
     <section className={printClassName} aria-hidden={mode ? "false" : "true"}>
       {mode === "report" ? (

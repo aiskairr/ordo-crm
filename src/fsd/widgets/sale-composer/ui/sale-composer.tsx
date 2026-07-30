@@ -31,6 +31,12 @@ type OrderItem = {
   regularPrice?: number;
 };
 
+type PaymentPart = {
+  localId: string;
+  paymentTypeHref: string;
+  amount: string;
+};
+
 type CreatedOrderResult = {
   document?: {
     id?: string;
@@ -78,8 +84,10 @@ type SalesDraft = {
   prepaymentMethodName: string;
   transferPrepayment: string;
   paymentTypeHref: string;
+  salesChannelHref: string;
   secondPaymentTypeHref: string;
   secondBankAmount: string;
+  paymentParts: PaymentPart[];
   employeeHref: string;
   retailStoreHref: string;
   customerMode: CustomerMode;
@@ -110,8 +118,10 @@ const emptyDraft: SalesDraft = {
   prepaymentMethodName: "Наличными",
   transferPrepayment: "0",
   paymentTypeHref: "",
+  salesChannelHref: "",
   secondPaymentTypeHref: "",
   secondBankAmount: "0",
+  paymentParts: [],
   employeeHref: "",
   retailStoreHref: "",
   customerMode: "retail",
@@ -132,7 +142,8 @@ function loadDraft(key = salesDraftKey, mode: "sales" | "debt" = "sales"): Sales
   if (typeof window === "undefined") return emptyDraft;
   try {
     const saved = window.localStorage.getItem(key);
-    const draft = saved ? { ...emptyDraft, ...JSON.parse(saved) } : emptyDraft;
+    const parsed = saved ? JSON.parse(saved) : {};
+    const draft = { ...emptyDraft, ...parsed, paymentParts: Array.isArray(parsed.paymentParts) ? parsed.paymentParts : [] };
     if (mode === "debt") {
       return { ...draft, paymentScenario: "debt", customerMode: draft.customerMode === "retail" ? "new" : draft.customerMode };
     }
@@ -144,6 +155,10 @@ function loadDraft(key = salesDraftKey, mode: "sales" | "debt" = "sales"): Sales
 
 function money(value: number) {
   return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(Number(value) || 0)} сом`;
+}
+
+function parseDraftMoney(value: string) {
+  return Number(String(value || "").replace(/\s/g, "").replace(",", "."));
 }
 
 function printReceipt(state: SuccessModalState) {
@@ -198,7 +213,7 @@ function printReceipt(state: SuccessModalState) {
 function normalizeCreatedOrderResult(
   payload: unknown,
   draft: SalesDraft,
-  currentUser: CurrentSalesUser | null,
+  employeeName: string,
 ): SuccessModalState {
   const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   const document = record.document && typeof record.document === "object" ? (record.document as Record<string, unknown>) : {};
@@ -212,7 +227,7 @@ function normalizeCreatedOrderResult(
     finalTotal: typeof calculation.finalTotal === "number" ? calculation.finalTotal : 0,
     paymentLabel: typeof calculation.paymentLabel === "string" ? calculation.paymentLabel : "",
     customerName: draft.customerName || "Розничный покупатель",
-    employeeName: currentUser?.name || "",
+    employeeName,
     branchName: branches[draft.branchKey],
     items: rawItems.map((item) => {
       const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
@@ -247,8 +262,16 @@ function isBankScenarioPaymentType(paymentType: PaymentTypeOption) {
   return !isDebtPaymentType(paymentType) && !isCashOnlyPaymentType(paymentType);
 }
 
-function isBankPaymentType(paymentType: PaymentTypeOption) {
-  return !isCashPaymentType(paymentType) && !isDebtPaymentType(paymentType) && !isQrPaymentType(paymentType);
+function isMixedPaymentType(paymentType: PaymentTypeOption) {
+  return !isDebtPaymentType(paymentType) && !isCashOnlyPaymentType(paymentType);
+}
+
+function createPaymentPart(paymentTypeHref = "", amount = ""): PaymentPart {
+  return {
+    localId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    paymentTypeHref,
+    amount,
+  };
 }
 
 function findCashPaymentType(paymentTypes: PaymentTypeOption[]) {
@@ -257,6 +280,20 @@ function findCashPaymentType(paymentTypes: PaymentTypeOption[]) {
 
 function findDebtPaymentType(paymentTypes: PaymentTypeOption[]) {
   return paymentTypes.find(isDebtPaymentType) ?? paymentTypes[0];
+}
+
+function branchKeyFromStoreName(name: string): BranchKey {
+  const normalized = normalizeLookup(name);
+  if (normalized.includes("беш")) return "besh";
+  return "ayu";
+}
+
+function branchIdsFromStore(store?: RetailStore | null) {
+  const branchKey = branchKeyFromStoreName(store?.name || "");
+  if (branchKey === "besh") {
+    return new Set(["besh", "besh-sary"]);
+  }
+  return new Set(["ayu", "ayu-grand"]);
 }
 
 function normalizeLookup(value: string) {
@@ -305,7 +342,7 @@ function findCurrentEmployee(employees: SelectOption[], currentUser: CurrentSale
 function visiblePaymentTypes(paymentTypes: PaymentTypeOption[], scenario: PaymentScenario) {
   if (scenario === "cash") return paymentTypes.filter(isCashPaymentType);
   if (scenario === "debt") return paymentTypes.filter(isDebtPaymentType);
-  if (scenario === "mixed") return paymentTypes.filter(isBankPaymentType);
+  if (scenario === "mixed") return paymentTypes.filter(isMixedPaymentType);
   return paymentTypes.filter(isBankScenarioPaymentType);
 }
 
@@ -340,6 +377,7 @@ export function SaleComposer({
   currentUser,
   retailStores,
   paymentTypes,
+  salesChannels,
   mode = "sales",
 }: {
   config: SalesConfig;
@@ -347,6 +385,7 @@ export function SaleComposer({
   currentUser: CurrentSalesUser | null;
   retailStores: RetailStore[];
   paymentTypes: PaymentTypeOption[];
+  salesChannels: SelectOption[];
   products: Product[];
   customers: Customer[];
   mode?: "sales" | "debt";
@@ -354,7 +393,20 @@ export function SaleComposer({
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const draftStorageKey = mode === "debt" ? debtDraftKey : salesDraftKey;
-  const [draft, setDraft] = useState<SalesDraft>(() => loadDraft(draftStorageKey, mode));
+  const [draft, setDraft] = useState<SalesDraft>(() => {
+    const loaded = loadDraft(draftStorageKey, mode);
+    const mixedTypes = visiblePaymentTypes(paymentTypes, "mixed");
+    if (loaded.paymentScenario === "mixed" && !loaded.paymentParts.length && mixedTypes.length) {
+      return {
+        ...loaded,
+        paymentParts: [
+          createPaymentPart(mixedTypes[0]?.id ?? ""),
+          createPaymentPart("", ""),
+        ],
+      };
+    }
+    return loaded;
+  });
   const [productQuery, setProductQuery] = useState("");
   const [productResults, setProductResults] = useState<Product[]>([]);
   const [customerQuery, setCustomerQuery] = useState("");
@@ -440,14 +492,37 @@ export function SaleComposer({
     setReceiptFile(file);
   };
 
-  const branchName = branches[draft.branchKey];
-  const branchStores = retailStores.filter((store) => !branchName || store.name.includes(branchName) || store.name === branchName);
-  const selectedStore = retailStores.find((store) => store.id === draft.retailStoreHref) ?? branchStores[0] ?? retailStores[0];
-  const selectedEmployee = findCurrentEmployee(employees, currentUser);
+  const selectedStore = retailStores.find((store) => store.id === draft.retailStoreHref || store.href === draft.retailStoreHref) ?? retailStores[0];
+  const branchKey = branchKeyFromStoreName(selectedStore?.name || branches[draft.branchKey]);
+  const branchName = selectedStore?.name || branches[branchKey];
+  const branchIds = branchIdsFromStore(selectedStore);
+  const visibleEmployees = employees.filter((employee) => employeeMatchesBranches(employee, branchIds));
+  const selectedEmployee = visibleEmployees.find((employee) => employee.id === draft.employeeHref || employee.href === draft.employeeHref)
+    ?? findCurrentEmployee(visibleEmployees, currentUser)
+    ?? visibleEmployees[0]
+    ?? null;
   const visibleTypes = visiblePaymentTypes(paymentTypes, draft.paymentScenario);
   const selectedPaymentType = paymentTypes.find((paymentType) => paymentType.id === draft.paymentTypeHref) ?? visibleTypes[0];
   const secondPaymentType = paymentTypes.find((paymentType) => paymentType.id === draft.secondPaymentTypeHref);
+  const selectedSalesChannel = salesChannels.find((channel) => channel.id === draft.salesChannelHref || channel.href === draft.salesChannelHref) ?? salesChannels[0] ?? null;
   const selectedCustomer = customerResults.find((customer) => customer.href === draft.customerHref);
+  const mixedPaymentTypes = paymentTypes.filter(isMixedPaymentType);
+  const normalizedPaymentParts = draft.paymentScenario === "mixed"
+    ? draft.paymentParts
+        .map((part) => {
+          const paymentType = paymentTypes.find((item) => item.id === part.paymentTypeHref || item.href === part.paymentTypeHref);
+          return {
+            ...part,
+            paymentTypeName: paymentType?.name || "",
+            paymentTypeHref: paymentType?.href || paymentType?.id || part.paymentTypeHref,
+            paymentTypeRate: paymentType?.rate ?? 0,
+            paymentTypeComment: paymentType?.comment || "",
+          };
+        })
+        .filter((part) => part.paymentTypeName || part.amount)
+    : [];
+  const primaryMixedPaymentType = normalizedPaymentParts[0];
+  const secondaryMixedPaymentType = normalizedPaymentParts[1];
 
   const productSearchMutation = useMutation({
     mutationFn: (search: string) => getProducts(search, selectedStore?.storeHref ?? "", branchName),
@@ -470,7 +545,7 @@ export function SaleComposer({
     return () => window.clearTimeout(timer);
     // productSearchMutation is intentionally omitted: TanStack mutation objects are not stable dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productQuery, draft.retailStoreHref, draft.branchKey]);
+  }, [productQuery, selectedStore?.id, branchName]);
 
   useEffect(() => {
     const search = customerQuery.trim();
@@ -483,7 +558,7 @@ export function SaleComposer({
     return () => window.clearTimeout(timer);
     // customerSearchMutation is intentionally omitted: TanStack mutation objects are not stable dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerQuery, draft.customerMode, draft.branchKey]);
+  }, [customerQuery, draft.customerMode, branchName]);
 
   const calculateMutation = useMutation({
     mutationFn: calculateSale,
@@ -493,7 +568,7 @@ export function SaleComposer({
   const orderMutation = useMutation({
     mutationFn: createOrder,
     onSuccess: async (result) => {
-      setSuccessModal(normalizeCreatedOrderResult(result as CreatedOrderResult, draft, currentUser));
+      setSuccessModal(normalizeCreatedOrderResult(result as CreatedOrderResult, draft, selectedEmployee?.name || currentUser?.name || ""));
       showToast({ tone: "success", title: "Документ создан", description: "Продажа сохранена в МойСклад." });
       setDraft(mode === "debt" ? { ...emptyDraft, paymentScenario: "debt", customerMode: "new" } : emptyDraft);
       setCalculation(null);
@@ -518,11 +593,45 @@ export function SaleComposer({
       ...current,
       paymentScenario: scenario,
       paymentTypeHref: nextType?.id ?? "",
-      cashPrepayment: scenario === "cash" || scenario === "bank" ? "0" : current.cashPrepayment,
+      cashPrepayment: scenario === "debt" ? current.cashPrepayment : "0",
       prepaymentMethodName: scenario === "cash" ? "Наличными" : current.prepaymentMethodName,
       secondPaymentTypeHref: scenario === "mixed" ? current.secondPaymentTypeHref : "",
       secondBankAmount: scenario === "mixed" ? current.secondBankAmount : "0",
+      paymentParts: scenario === "mixed"
+        ? current.paymentParts.length
+          ? current.paymentParts
+          : [
+              createPaymentPart(nextType?.id ?? ""),
+              createPaymentPart("", ""),
+            ]
+        : [],
     }));
+  };
+
+  const updatePaymentPart = <K extends keyof PaymentPart>(localId: string, field: K, value: PaymentPart[K]) => {
+    setDraft((current) => ({
+      ...current,
+      paymentParts: current.paymentParts.map((part) => (part.localId === localId ? { ...part, [field]: value } : part)),
+    }));
+  };
+
+  const addPaymentPart = () => {
+    setDraft((current) => {
+      if (current.paymentParts.length >= 3) return current;
+      const used = new Set(current.paymentParts.map((part) => part.paymentTypeHref).filter(Boolean));
+      const nextType = mixedPaymentTypes.find((paymentType) => !used.has(paymentType.id));
+      return {
+        ...current,
+        paymentParts: [...current.paymentParts, createPaymentPart(nextType?.id ?? "", "")],
+      };
+    });
+  };
+
+  const removePaymentPart = (localId: string) => {
+    setDraft((current) => {
+      if (current.paymentParts.length <= 2) return current;
+      return { ...current, paymentParts: current.paymentParts.filter((part) => part.localId !== localId) };
+    });
   };
 
   const addProduct = (product: Product) => {
@@ -579,15 +688,18 @@ export function SaleComposer({
     transferPrepayment: draft.transferPrepayment,
     paymentScenario: draft.paymentScenario,
     loyaltyRedemption: draft.loyaltyRedemption,
-    paymentTypeName: selectedPaymentType?.name || "",
-    paymentTypeHref: selectedPaymentType?.href || selectedPaymentType?.id || "",
-    paymentTypeRate: selectedPaymentType?.rate ?? 0,
-    paymentTypeComment: selectedPaymentType?.comment || "",
-    secondPaymentTypeName: secondPaymentType?.name || "",
-    secondPaymentTypeHref: secondPaymentType?.href || secondPaymentType?.id || "",
-    secondPaymentTypeRate: secondPaymentType?.rate ?? 0,
-    secondPaymentTypeComment: secondPaymentType?.comment || "",
-    secondBankAmount: draft.secondBankAmount,
+    paymentTypeName: primaryMixedPaymentType?.paymentTypeName || selectedPaymentType?.name || "",
+    paymentTypeHref: primaryMixedPaymentType?.paymentTypeHref || selectedPaymentType?.href || selectedPaymentType?.id || "",
+    paymentTypeRate: primaryMixedPaymentType?.paymentTypeRate ?? selectedPaymentType?.rate ?? 0,
+    paymentTypeComment: primaryMixedPaymentType?.paymentTypeComment || selectedPaymentType?.comment || "",
+    paymentParts: normalizedPaymentParts,
+    salesChannelHref: selectedSalesChannel?.href || selectedSalesChannel?.id || "",
+    salesChannelName: selectedSalesChannel?.name || "",
+    secondPaymentTypeName: secondaryMixedPaymentType?.paymentTypeName || secondPaymentType?.name || "",
+    secondPaymentTypeHref: secondaryMixedPaymentType?.paymentTypeHref || secondPaymentType?.href || secondPaymentType?.id || "",
+    secondPaymentTypeRate: secondaryMixedPaymentType?.paymentTypeRate ?? secondPaymentType?.rate ?? 0,
+    secondPaymentTypeComment: secondaryMixedPaymentType?.paymentTypeComment || secondPaymentType?.comment || "",
+    secondBankAmount: secondaryMixedPaymentType?.amount || draft.secondBankAmount,
     employeeName: selectedEmployee?.name || "",
     employeeHref: selectedEmployee?.href || selectedEmployee?.id || "",
       retailStoreName: selectedStore?.name || "",
@@ -623,6 +735,17 @@ export function SaleComposer({
     if (!selectedEmployee) throw new Error("Выберите сотрудника.");
     if (!selectedStore) throw new Error("Выберите точку продаж.");
     if (!selectedPaymentType) throw new Error("Выберите тип оплаты.");
+    if (draft.paymentScenario === "mixed") {
+      if (normalizedPaymentParts.length < 2) throw new Error("Добавьте минимум два способа оплаты.");
+      const usedPaymentTypes = new Set<string>();
+      for (const part of normalizedPaymentParts) {
+        if (!part.paymentTypeName) throw new Error("Выберите способ оплаты в каждой строке.");
+        const amount = parseDraftMoney(part.amount);
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error("Укажите сумму для каждого способа оплаты.");
+        if (usedPaymentTypes.has(part.paymentTypeHref)) throw new Error("В смешанной оплате способы не должны повторяться.");
+        usedPaymentTypes.add(part.paymentTypeHref);
+      }
+    }
     if (!receiptFile && mode !== "debt") throw new Error("Добавьте фотографию чека.");
     if (mode === "debt" && draft.customerMode === "retail") throw new Error("Для продажи в долг выберите нового или старого клиента.");
     if (draft.customerMode === "new" && (!draft.customerName.trim() || !draft.customerPhone.trim())) throw new Error("Введите имя и телефон клиента.");
@@ -694,18 +817,30 @@ export function SaleComposer({
       ) : null}
 
       <section className={styles.panel}>
-        <h2>Филиал и справочники</h2>
+        <h2>Точка продаж и сотрудник</h2>
         <div className={styles.formGrid}>
           <label>
-            Филиал
-            <select value={draft.branchKey} onChange={(event) => updateDraft("branchKey", event.target.value as BranchKey)}>
-              <option value="ayu">Аю-Гранд</option>
-              <option value="besh">Беш-Сары</option>
-            </select>
-          </label>
-          <label>
             Точка продаж
-            <select value={selectedStore?.id ?? ""} onChange={(event) => updateDraft("retailStoreHref", event.target.value)}>
+            <select
+              value={selectedStore?.id ?? selectedStore?.href ?? ""}
+              onChange={(event) => {
+                const nextStore = retailStores.find((store) => store.id === event.target.value || store.href === event.target.value) ?? null;
+                const nextBranchKey = branchKeyFromStoreName(nextStore?.name || "");
+                const nextBranchIds = branchIdsFromStore(nextStore);
+                const nextEmployees = employees.filter((employee) => employeeMatchesBranches(employee, nextBranchIds));
+                const currentEmployeeInNextBranch = nextEmployees.find((employee) => employee.id === draft.employeeHref || employee.href === draft.employeeHref);
+                const nextEmployee = currentEmployeeInNextBranch
+                  ?? findCurrentEmployee(nextEmployees, currentUser)
+                  ?? nextEmployees[0]
+                  ?? null;
+                setDraft((current) => ({
+                  ...current,
+                  retailStoreHref: event.target.value,
+                  branchKey: nextBranchKey,
+                  employeeHref: nextEmployee?.id || nextEmployee?.href || "",
+                }));
+              }}
+            >
               {retailStores.map((store) => (
                 <option key={store.id} value={store.id}>
                   {store.name}
@@ -715,14 +850,26 @@ export function SaleComposer({
           </label>
           <label>
             Сотрудник
-            <select value={selectedEmployee?.id ?? ""} disabled>
-              {selectedEmployee ? (
-                <option value={selectedEmployee.id}>{selectedEmployee.name}</option>
-              ) : (
-                <option value="">Не найден текущий сотрудник</option>
-              )}
+            <select value={selectedEmployee?.id ?? selectedEmployee?.href ?? ""} onChange={(event) => updateDraft("employeeHref", event.target.value)}>
+              {visibleEmployees.length ? visibleEmployees.map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.name}
+                </option>
+              )) : <option value="">Нет сотрудников для этой точки</option>}
             </select>
           </label>
+          {salesChannels.length ? (
+            <label>
+              Канал продаж
+              <select value={selectedSalesChannel?.id ?? selectedSalesChannel?.href ?? ""} onChange={(event) => updateDraft("salesChannelHref", event.target.value)}>
+                {salesChannels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
       </section>
 
@@ -814,7 +961,7 @@ export function SaleComposer({
           </div>
         )}
         <div className={styles.formGrid}>
-          {draft.paymentScenario !== "cash" ? (
+          {draft.paymentScenario === "bank" ? (
             <label>
               Тип оплаты
               <select value={selectedPaymentType?.id ?? ""} onChange={(event) => updateDraft("paymentTypeHref", event.target.value)}>
@@ -826,10 +973,10 @@ export function SaleComposer({
               </select>
             </label>
           ) : null}
-          {draft.paymentScenario === "mixed" || draft.paymentScenario === "debt" ? (
+          {draft.paymentScenario === "debt" ? (
             <>
               <label>
-                {draft.paymentScenario === "debt" ? "Предоплата" : "Оплата сразу"}
+                Предоплата
                 <input value={draft.cashPrepayment} onChange={(event) => updateDraft("cashPrepayment", event.target.value)} />
               </label>
               <label>
@@ -843,28 +990,83 @@ export function SaleComposer({
                   ))}
                 </select>
               </label>
-              {draft.paymentScenario === "mixed" ? (
-                <>
-                  <label>
-                    Банк №2
-                    <select value={draft.secondPaymentTypeHref} onChange={(event) => updateDraft("secondPaymentTypeHref", event.target.value)}>
-                      <option value="">Выберите второй банк</option>
-                      {paymentTypes.filter(isBankPaymentType).map((paymentType) => (
+              <label>
+                Тип оплаты
+                <select value={selectedPaymentType?.id ?? ""} onChange={(event) => updateDraft("paymentTypeHref", event.target.value)}>
+                  {visibleTypes.map((paymentType) => (
+                    <option key={paymentType.id} value={paymentType.id}>
+                      {paymentType.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : null}
+        </div>
+        {draft.paymentScenario === "mixed" ? (
+          <div className={styles.mixedPaymentGrid}>
+            <div className={styles.mixedPaymentHead}>
+              <span>Способ</span>
+              <span>Сумма</span>
+              <span />
+            </div>
+            {draft.paymentParts.map((part, index) => {
+              const usedByOtherRows = new Set(
+                draft.paymentParts
+                  .filter((item) => item.localId !== part.localId)
+                  .map((item) => item.paymentTypeHref)
+                  .filter(Boolean),
+              );
+              return (
+                <div key={part.localId} className={styles.mixedPaymentRow}>
+                  <select
+                    aria-label={`Способ оплаты номер ${index + 1}`}
+                    value={part.paymentTypeHref}
+                    onChange={(event) => updatePaymentPart(part.localId, "paymentTypeHref", event.target.value)}
+                  >
+                    <option value="">Выберите способ</option>
+                    {mixedPaymentTypes
+                      .filter((paymentType) => !usedByOtherRows.has(paymentType.id) || paymentType.id === part.paymentTypeHref)
+                      .map((paymentType) => (
                         <option key={paymentType.id} value={paymentType.id}>
                           {paymentType.name}
                         </option>
                       ))}
-                    </select>
-                  </label>
-                  <label>
-                    Сумма банк №2
-                    <input value={draft.secondBankAmount} onChange={(event) => updateDraft("secondBankAmount", event.target.value)} />
-                  </label>
-                </>
-              ) : null}
-            </>
-          ) : null}
-        </div>
+                  </select>
+                  <input
+                    aria-label={`Сумма оплаты номер ${index + 1}`}
+                    value={part.amount}
+                    onChange={(event) => updatePaymentPart(part.localId, "amount", event.target.value)}
+                    placeholder="0"
+                    inputMode="decimal"
+                  />
+                  <button
+                    type="button"
+                    className={styles.mixedPaymentRemove}
+                    onClick={() => removePaymentPart(part.localId)}
+                    disabled={draft.paymentParts.length <= 2}
+                    aria-label="Удалить способ оплаты"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              );
+            })}
+            <button type="button" className={styles.addPaymentButton} onClick={addPaymentPart} disabled={draft.paymentParts.length >= 3}>
+              + Добавить способ оплаты
+            </button>
+          </div>
+        ) : null}
+        {draft.paymentScenario === "mixed" ? (
+          <div className={styles.bankSplitPreview}>
+            {normalizedPaymentParts.map((part, index) => (
+              <article key={part.localId}>
+                <span>{part.paymentTypeName || `Оплата №${index + 1}`}</span>
+                <strong>{money(parseDraftMoney(part.amount) || 0)}</strong>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className={styles.panel}>

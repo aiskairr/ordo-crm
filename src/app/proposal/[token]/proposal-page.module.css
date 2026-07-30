@@ -1,0 +1,366 @@
+.page {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(101, 134, 255, 0.22), transparent 28%),
+    linear-gradient(180deg, #f4f7ff 0%, #eef3fb 100%);
+  color: #17203a;
+}
+
+.state {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(180deg, #f4f7ff 0%, #eef3fb 100%);
+  color: #17203a;
+}
+
+.stateCard {
+  width: min(560px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(41, 74, 168, 0.14);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 64px rgba(31, 46, 92, 0.12);
+}
+
+.stateCard strong,
+.stateCard span {
+  display: block;
+}
+
+.stateCard strong {
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+  gap: 18px;
+  padding: 28px;
+  border-radius: 28px;
+  background: linear-gradient(135deg, #15182b 0%, #3038a4 100%);
+  color: #fff;
+  box-shadow: 0 32px 80px rgba(22, 32, 66, 0.2);
+}
+
+.eyebrow,
+.eyebrowDark {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.eyebrow {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.eyebrowDark {
+  color: #3d62ff;
+}
+
+.heroCopy h1 {
+  margin: 0;
+  font-size: clamp(36px, 5vw, 60px);
+  line-height: 1;
+}
+
+.subtitle {
+  max-width: 760px;
+  margin: 16px 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.heroMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.heroMeta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.heroStats {
+  display: grid;
+  gap: 12px;
+}
+
+.statCard,
+.infoCard,
+.bankCard {
+  border: 1px solid rgba(41, 74, 168, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 20px 60px rgba(33, 49, 96, 0.08);
+}
+
+.statCard {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  box-shadow: none;
+}
+
+.statCard span,
+.infoCard p,
+.bankCard span {
+  color: #6b7693;
+}
+
+.statCard span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.statCard strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 30px;
+}
+
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.infoCard {
+  padding: 22px;
+}
+
+.infoCard p,
+.infoCard strong,
+.infoCard span {
+  margin: 0;
+  display: block;
+}
+
+.infoCard strong {
+  margin-top: 10px;
+  font-size: 24px;
+  color: #1b2442;
+}
+
+.infoCard span {
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.products {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.productCard {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) minmax(0, 1fr);
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid rgba(41, 74, 168, 0.12);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 72px rgba(31, 46, 92, 0.08);
+}
+
+.media {
+  position: relative;
+  min-height: 280px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #f3f6ff 0%, #e9eefb 100%);
+  display: grid;
+  place-items: center;
+}
+
+.media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.imageFallback {
+  color: #7a84a1;
+  font-weight: 700;
+}
+
+.productBody {
+  display: grid;
+  gap: 16px;
+}
+
+.productHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.productIndex {
+  margin: 0 0 8px;
+  color: #3d62ff;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.productHead h2 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.05;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tags span {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: #4f5d86;
+  font-size: 13px;
+}
+
+.priceBox {
+  min-width: 190px;
+  padding: 18px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #f7f9ff 0%, #edf3ff 100%);
+}
+
+.priceBox span,
+.priceBox small {
+  color: #6b7693;
+}
+
+.priceBox strong {
+  display: block;
+  margin: 10px 0 8px;
+  font-size: 28px;
+  color: #1b2442;
+}
+
+.description {
+  margin: 0;
+  color: #4b5677;
+  line-height: 1.7;
+}
+
+.specGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.specCard {
+  padding: 16px;
+  border-radius: 18px;
+  background: #f7f9ff;
+  border: 1px solid #e4eafe;
+}
+
+.specCard span,
+.specCard strong {
+  display: block;
+}
+
+.specCard span {
+  color: #7180a5;
+  font-size: 13px;
+}
+
+.specCard strong {
+  margin-top: 8px;
+  color: #1a2342;
+  line-height: 1.4;
+}
+
+.productFooter {
+  padding-top: 4px;
+  color: #55607f;
+}
+
+.bankCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-top: 22px;
+  padding: 22px 24px;
+}
+
+.bankCard h3 {
+  margin: 8px 0;
+  font-size: 30px;
+}
+
+.bankBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: #3452cc;
+  font-weight: 700;
+}
+
+@media (max-width: 1100px) {
+  .hero,
+  .productCard,
+  .infoGrid,
+  .specGrid,
+  .bankCard {
+    grid-template-columns: 1fr;
+  }
+
+  .productHead,
+  .bankCard {
+    flex-direction: column;
+  }
+
+  .priceBox {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 16px;
+  }
+
+  .hero,
+  .productCard,
+  .infoCard,
+  .bankCard {
+    padding: 18px;
+  }
+
+  .media {
+    min-height: 220px;
+  }
+
+  .productHead h2 {
+    font-size: 26px;
+  }
+}
