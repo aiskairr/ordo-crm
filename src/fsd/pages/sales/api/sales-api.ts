@@ -16,6 +16,7 @@ export type CurrentSalesUser = {
   login?: string;
   role: string;
   branches: string[];
+  moySkladEmployeeHref?: string;
 };
 
 export type PaymentTypeOption = SelectOption & {
@@ -95,6 +96,7 @@ function normalizeCurrentSalesUser(value: unknown): CurrentSalesUser {
     login: asString(record.login, undefined),
     role: asString(record.role),
     branches: asStringArray(record.branches),
+    moySkladEmployeeHref: asString(record.moySkladEmployeeHref ?? record.moysklad_employee_href, undefined),
   };
 }
 

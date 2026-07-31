@@ -588,6 +588,44 @@
   padding: 0 10px;
 }
 
+.receiptFiles {
+  display: grid;
+  gap: 6px;
+}
+
+.receiptFiles > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 7px 8px 7px 10px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.receiptFiles span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receiptFiles button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+
 .receiptBox input {
   display: none;
 }

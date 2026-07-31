@@ -27,6 +27,10 @@ function formatQuantity(value: number) {
   return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(value);
 }
 
+function splitDeliveryPhones(value: string) {
+  return value.split(/\s*\/\s*/).map((phone) => phone.trim()).filter(Boolean);
+}
+
 function includesQuery(delivery: Delivery, query: string) {
   const source = [
     delivery.customerName,
@@ -185,7 +189,13 @@ export function DeliveriesPage() {
               <div className={styles.info}>
                 <div>
                   <span>Телефон</span>
-                  {delivery.customerPhone ? <a href={`tel:${delivery.customerPhone}`}>{delivery.customerPhone}</a> : <strong>-</strong>}
+                  {delivery.customerPhone ? (
+                    <p className={styles.phoneList}>
+                      {splitDeliveryPhones(delivery.customerPhone).map((phone) => (
+                        <a key={phone} href={`tel:${phone}`}>{phone}</a>
+                      ))}
+                    </p>
+                  ) : <strong>-</strong>}
                 </div>
                 <div>
                   <span>Адрес</span>

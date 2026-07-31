@@ -61,7 +61,10 @@
       "role": "admin",
       "branches": [
         "ayu",
-        "besh"
+        "besh",
+        "green",
+        "ayu-grand",
+        "besh-sary"
       ],
       "permissions": [
         "sales",
@@ -71,6 +74,7 @@
         "reports",
         "bankCommissions",
         "reportProfit",
+        "editDocumentPrices",
         "expenses",
         "payroll",
         "commercialDocuments",
@@ -80,11 +84,11 @@
         "customsCalculator",
         "audit",
         "users",
-        "superAdmin",
         "about"
       ],
       "active": true,
-      "passwordHash": ""
+      "passwordHash": "",
+      "moySkladEmployeeHref": ""
     },
     {
       "id": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
@@ -95,7 +99,10 @@
       "role": "manager",
       "branches": [
         "ayu",
-        "besh"
+        "besh",
+        "green",
+        "ayu-grand",
+        "besh-sary"
       ],
       "permissions": [
         "sales",
@@ -104,13 +111,15 @@
         "attendance",
         "reports",
         "bankCommissions",
-        "reportProfit",
         "expenses",
         "payroll",
-        "commercialDocuments"
+        "commercialDocuments",
+        "reportProfit",
+        "editDocumentPrices"
       ],
       "active": true,
-      "passwordHash": ""
+      "passwordHash": "",
+      "moySkladEmployeeHref": ""
     },
     {
       "id": "8e18ae57-76cc-4412-b32e-538368f46a78",
@@ -121,7 +130,10 @@
       "role": "admin",
       "branches": [
         "ayu",
-        "besh"
+        "besh",
+        "green",
+        "ayu-grand",
+        "besh-sary"
       ],
       "permissions": [
         "sales",
@@ -131,6 +143,7 @@
         "reports",
         "bankCommissions",
         "reportProfit",
+        "editDocumentPrices",
         "expenses",
         "payroll",
         "commercialDocuments",
@@ -143,7 +156,8 @@
         "about"
       ],
       "active": true,
-      "passwordHash": ""
+      "passwordHash": "",
+      "moySkladEmployeeHref": ""
     },
     {
       "id": "7faae323-c24d-4e1c-bd48-e97c1ac352e6",
@@ -166,6 +180,26 @@
       ],
       "active": true,
       "passwordHash": ""
+    },
+    {
+      "id": "5f87387c-cded-4412-8547-63c20e4dbc85",
+      "name": "Азиз",
+      "login": "aziz310726",
+      "position": "Сотрудник",
+      "salary": 0,
+      "role": "seller",
+      "branches": [
+        "besh"
+      ],
+      "permissions": [
+        "sales",
+        "deliveries",
+        "debtSale",
+        "reports"
+      ],
+      "active": true,
+      "passwordHash": "",
+      "moySkladEmployeeHref": ""
     }
   ],
   "sessions": {
@@ -182,7 +216,10 @@
     "8a933571-f6fa-4669-aad8-ff1d0a70f1fc": "8e18ae57-76cc-4412-b32e-538368f46a78",
     "2c62d747-d551-4f95-b788-3f8e424386c4": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
     "53f0ae9d-be6f-4aa9-8b4f-5c813f811a32": "8e18ae57-76cc-4412-b32e-538368f46a78",
-    "49deca7f-ee79-49bf-93a5-bd5ba85f732d": "8e18ae57-76cc-4412-b32e-538368f46a78"
+    "568e15c4-6ce0-44e1-9241-efdfde5b2bc9": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "03b0087e-01cc-43d1-80df-54a1b00acae0": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "448bde0a-9a81-46bc-9bb6-baec5eae6297": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "a7318d57-8625-40c8-961b-f88925121d49": "5e697f28-61ba-47af-ad23-c31a90f10ea9"
   },
   "uiSettings": {},
   "expenses": [],
@@ -274,6 +311,378 @@
   },
   "customsHistory": [],
   "orders": [
+    {
+      "id": "0a707711-8ce7-11f1-0a80-1158001d91dc",
+      "type": "demand",
+      "name": "00170",
+      "moment": "2026-07-31T13:52:17.927Z",
+      "amount": 1400,
+      "paid": 0,
+      "unpaid": 1400,
+      "netProfit": 784,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "ИП Аминхан",
+      "customerPhone": "+71939732937293",
+      "customerType": "legal",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Фен VGR V-428",
+          "quantity": 1,
+          "price": 1400,
+          "sum": 1400,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "9ae38aaa-8ce6-11f1-0a80-1350001e631c",
+      "type": "demand",
+      "name": "00169",
+      "moment": "2026-07-31T13:49:11.312Z",
+      "amount": 1400,
+      "paid": 0,
+      "unpaid": 1400,
+      "netProfit": 784,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "ИП Аминхан",
+      "customerPhone": "+71939732937293",
+      "customerType": "legal",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Фен VGR V-428",
+          "quantity": 1,
+          "price": 1400,
+          "sum": 1400,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "1daebbc5-8ce6-11f1-0a80-15ef001e4ead",
+      "type": "demand",
+      "name": "00168",
+      "moment": "2026-07-31T13:45:39.644Z",
+      "amount": 1400,
+      "paid": 0,
+      "unpaid": 1400,
+      "netProfit": 784,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "ИП Аминхан",
+      "customerPhone": "+71939732937293",
+      "customerType": "legal",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Фен VGR V-428",
+          "quantity": 1,
+          "price": 1400,
+          "sum": 1400,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "f7fa6e97-8ce5-11f1-0a80-06c2001e3a03",
+      "type": "demand",
+      "name": "00167",
+      "moment": "2026-07-31T13:44:36.463Z",
+      "amount": 1400,
+      "paid": 0,
+      "unpaid": 1400,
+      "netProfit": 784,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "ИП Аминхан",
+      "customerPhone": "+71939732937293",
+      "customerType": "legal",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Фен VGR V-428",
+          "quantity": 1,
+          "price": 1400,
+          "sum": 1400,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "1e85b9bc-8cdd-11f1-0a80-06c2001c284f",
+      "type": "retaildemand",
+      "name": "00683",
+      "moment": "2026-07-31T12:41:16.778Z",
+      "amount": 5500,
+      "paid": 0,
+      "unpaid": 5500,
+      "netProfit": 2099.68,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Термопот BRETTMAN 20L",
+          "quantity": 1,
+          "price": 5500,
+          "sum": 5500,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "337efd15-8cdc-11f1-0a80-1f50001c05aa",
+      "type": "retaildemand",
+      "name": "00682",
+      "moment": "2026-07-31T12:34:42.694Z",
+      "amount": 5500,
+      "paid": 0,
+      "unpaid": 5500,
+      "netProfit": 2099.68,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Термопот BRETTMAN 20L",
+          "quantity": 1,
+          "price": 5500,
+          "sum": 5500,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "de3318e1-8cdb-11f1-0a80-15ef001bccee",
+      "type": "retaildemand",
+      "name": "00681",
+      "moment": "2026-07-31T12:32:18.381Z",
+      "amount": 5500,
+      "paid": 0,
+      "unpaid": 5500,
+      "netProfit": 2099.68,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Термопот BRETTMAN 20L",
+          "quantity": 1,
+          "price": 5500,
+          "sum": 5500,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "d069aef1-8cdb-11f1-0a80-17ba001bb092",
+      "type": "retaildemand",
+      "name": "00680",
+      "moment": "2026-07-31T12:31:56.349Z",
+      "amount": 4500,
+      "paid": 0,
+      "unpaid": 4500,
+      "netProfit": 1999.92,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Термопот BRETTMAN 8L",
+          "quantity": 1,
+          "price": 4500,
+          "sum": 4500,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "bc41692b-8cdb-11f1-0a80-17ba001badcd",
+      "type": "retaildemand",
+      "name": "00679",
+      "moment": "2026-07-31T12:31:21.614Z",
+      "amount": 5500,
+      "paid": 0,
+      "unpaid": 5500,
+      "netProfit": 2099.68,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Термопот BRETTMAN 20L",
+          "quantity": 1,
+          "price": 5500,
+          "sum": 5500,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "da180b9f-8cd9-11f1-0a80-0b40001ae0e6",
+      "type": "retaildemand",
+      "name": "00678",
+      "moment": "2026-07-31T12:17:53.035Z",
+      "amount": 24500,
+      "paid": 0,
+      "unpaid": 24500,
+      "netProfit": 7252,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "замирбек",
+      "customerPhone": "0709193333",
+      "customerType": "individual",
+      "employeeName": "Кудайберди",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Вентилятор с увлажнителем GF",
+          "quantity": 1,
+          "price": 5500,
+          "sum": 5500,
+          "isGift": false
+        },
+        {
+          "code": "",
+          "name": "Встраиваемый духовой шкаф MIDEA MO 17000GB",
+          "quantity": 1,
+          "price": 19000,
+          "sum": 19000,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "2b98c9dd-8cd4-11f1-0a80-08f400198d07",
+      "type": "retaildemand",
+      "name": "00677",
+      "moment": "2026-07-31T11:37:12.869Z",
+      "amount": 2400,
+      "paid": 0,
+      "unpaid": 2400,
+      "netProfit": 1300,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Фен ENZO X6",
+          "quantity": 1,
+          "price": 2400,
+          "sum": 2400,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "744e9f37-8ccb-11f1-0a80-194000169feb",
+      "type": "retaildemand",
+      "name": "00676",
+      "moment": "2026-07-31T10:34:48.496Z",
+      "amount": 1100,
+      "paid": 0,
+      "unpaid": 1100,
+      "netProfit": 600.16,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Утюжок для волос LUMABELLA LB-65005",
+          "quantity": 1,
+          "price": 1100,
+          "sum": 1100,
+          "isGift": false
+        }
+      ]
+    },
+    {
+      "id": "fbf69d89-8cc7-11f1-0a80-0d6600172fb4",
+      "type": "retaildemand",
+      "name": "00675",
+      "moment": "2026-07-31T10:09:58.028Z",
+      "amount": 1400,
+      "paid": 0,
+      "unpaid": 1400,
+      "netProfit": 1393,
+      "branchName": "Аю-Гранд",
+      "storeName": "Аю-Гранд",
+      "customerName": "",
+      "customerPhone": "",
+      "customerType": "individual",
+      "employeeName": "Сис.Админ",
+      "paymentType": "cash",
+      "comment": "",
+      "products": [
+        {
+          "code": "",
+          "name": "Фен VGR V-428",
+          "quantity": 1,
+          "price": 1400,
+          "sum": 1400,
+          "isGift": false
+        }
+      ]
+    },
     {
       "id": "c2ac7f4c-8bfe-11f1-0a80-1f4b0015cc2c",
       "type": "retaildemand",

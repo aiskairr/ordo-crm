@@ -13,6 +13,7 @@ import {
   SuperAdminConfigurationError,
   verifySuperAdminSessionToken,
 } from "../_lib/super-admin-auth";
+import { renderTelegramSaleCard } from "../_lib/telegram-sale-card";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ type CrmUser = {
   permissions: string[];
   active: boolean;
   passwordHash: string;
+  moySkladEmployeeHref?: string;
 };
 
 type UiSettings = {
@@ -197,6 +199,7 @@ const permissions = [
   "reports",
   "bankCommissions",
   "reportProfit",
+  "editDocumentPrices",
   "expenses",
   "payroll",
   "commercialDocuments",
@@ -212,7 +215,7 @@ const permissions = [
 const rolePermissions: Record<CrmRole, string[]> = {
   admin: permissions,
   owner: permissions,
-  manager: ["sales", "debtSale", "deliveries", "attendance", "reports", "reportProfit", "expenses", "payroll", "commercialDocuments", "reconciliation", "whatsappBroadcast", "customsCalculator", "bankCommissions", "about"],
+  manager: ["sales", "debtSale", "deliveries", "attendance", "reports", "reportProfit", "editDocumentPrices", "expenses", "payroll", "commercialDocuments", "reconciliation", "whatsappBroadcast", "customsCalculator", "bankCommissions", "about"],
   seller: ["sales", "debtSale", "deliveries", "attendance", "reports", "commercialDocuments", "about"],
   logistics: ["sales", "debtSale", "deliveries", "attendance", "commercialDocuments", "about"],
   accountant: ["attendance", "reports", "expenses", "payroll", "reconciliation", "priceFormula", "customsCalculator", "bankCommissions", "about"],
@@ -249,7 +252,7 @@ const SALES_REPORT_CACHE_TTL_MS = 60_000;
 const productStockCache = new Map<string, { value: number; createdAt: number }>();
 const salesReportCache = new Map<string, { value: { rows: Array<Record<string, unknown>>; canViewProfit: boolean; totals?: JsonRecord; dateFrom?: string; dateTo?: string }; createdAt: number }>();
 
-type ReconciliationDocument = ReturnType<typeof mapMoySkladReportDocument>;
+type ReconciliationDocument = ReturnType<typeof mapMoySkladReconciliationDocument>;
 type ReconciliationDebtorAggregate = {
   id: string;
   href: string;
@@ -271,7 +274,10 @@ type ReconciliationScanState = {
   createdAt: number;
   loadedAt: string;
   debtorsByKey: Map<string, ReconciliationDebtorAggregate>;
+  creditsByAgentHref: Map<string, number>;
+  paymentsLoaded: boolean;
   scannedOffsets: Record<"retaildemand" | "demand", number>;
+  scannedChunks: number;
   completed: boolean;
   partial: boolean;
   truncated: boolean;
@@ -652,6 +658,7 @@ function publicUser(user: CrmUser) {
     branches: user.branches,
     permissions: user.permissions,
     active: user.active,
+    moySkladEmployeeHref: user.moySkladEmployeeHref || "",
   };
   return { ...safeUser, passwordSet: true };
 }
@@ -690,6 +697,7 @@ function normalizeCrmBranches(value: unknown) {
 }
 
 const reportProfitRoles = new Set<CrmRole>(["admin", "owner", "manager", "accountant"]);
+const documentPriceEditRoles = new Set<CrmRole>(["admin", "owner", "manager"]);
 
 function normalizeLoginValue(value: unknown) {
   return asString(value).trim().toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 60);
@@ -701,9 +709,11 @@ function normalizeCrmPermissions(role: unknown, value: unknown) {
   const source = Array.isArray(value) && value.length ? value.map(String) : rolePermissions[roleName];
   const filtered = [...new Set(source.filter((permission) => permissions.includes(permission)))];
   if (!reportProfitRoles.has(roleName)) {
-    return filtered.filter((permission) => permission !== "reportProfit");
+    return filtered.filter((permission) => permission !== "reportProfit" && permission !== "editDocumentPrices");
   }
-  return filtered;
+  return documentPriceEditRoles.has(roleName)
+    ? filtered
+    : filtered.filter((permission) => permission !== "editDocumentPrices");
 }
 
 function isCrmRole(value: unknown): value is CrmRole {
@@ -900,7 +910,10 @@ async function getSupabaseCrmUserByLogin(login: string) {
   return rows[0] || null;
 }
 
-async function removeMoySkladEmployeeForCrmUser(user: { name: string; moySkladEmployeeHref?: string }) {
+async function removeMoySkladEmployeeForCrmUser(
+  user: { name: string; moySkladEmployeeHref?: string },
+  options: { archiveOnFailure?: boolean } = {},
+) {
   let href = asString(user.moySkladEmployeeHref);
   let token = "";
 
@@ -938,6 +951,16 @@ async function removeMoySkladEmployeeForCrmUser(user: { name: string; moySkladEm
 
   if (deletionResponse.ok) {
     return { status: "deleted" };
+  }
+  if (deletionResponse.status === 404) {
+    return { status: "not_found" };
+  }
+  if (options.archiveOnFailure === false) {
+    const deletionPayload = await deletionResponse.json().catch(() => null);
+    return {
+      status: "skipped",
+      reason: getMoySkladError(deletionPayload, "МойСклад не разрешил окончательно удалить сотрудника."),
+    };
   }
 
   const currentResponse = await moyskladFetch(href, {
@@ -1310,6 +1333,192 @@ async function deleteManagedCrmUser(id: string, data: AppData, actor: CrmUser) {
   return { ok: true, user: sanitizeManagedCrmUser(rows[0]), moySkladRemoval };
 }
 
+const employeeSaleDocumentTypes = ["demand", "retaildemand"] as const;
+type EmployeeSaleDocumentType = (typeof employeeSaleDocumentTypes)[number];
+
+function assertEmployeeReassignmentSource(actor: CrmUser, source: ReturnType<typeof sanitizeManagedCrmUser>) {
+  if (actor.id === source.id) throw new Response("Нельзя удалить самого себя.", { status: 400 });
+  if (source.role === "admin" || source.role === "owner") {
+    throw new Response("Нельзя удалить admin или owner.", { status: 400 });
+  }
+  if (source.role === "manager" && actor.role !== "admin") {
+    throw new Response("Только admin может удалить manager.", { status: 403 });
+  }
+  if (!source.moySkladEmployeeHref) {
+    throw new Response("Сотрудник не привязан к справочнику МойСклад.", { status: 409 });
+  }
+}
+
+async function getEmployeeReassignmentUsers(sourceId: string, targetId: string | null, data: AppData, actor: CrmUser) {
+  const users = await getManagedCrmUsers(data);
+  const source = users.find((user) => user.id === sourceId);
+  if (!source) throw new Response("Сотрудник не найден.", { status: 404 });
+  assertEmployeeReassignmentSource(actor, source);
+
+  const target = targetId ? users.find((user) => user.id === targetId) : null;
+  if (targetId && !target) throw new Response("Новый ответственный сотрудник не найден.", { status: 404 });
+  if (target) {
+    if (!target.active || (target.role !== "admin" && target.role !== "owner")) {
+      throw new Response("Продажи можно перенести только на активного admin или owner.", { status: 400 });
+    }
+    if (!target.moySkladEmployeeHref) {
+      throw new Response("Выбранный администратор не привязан к справочнику МойСклад.", { status: 409 });
+    }
+    if (target.moySkladEmployeeHref === source.moySkladEmployeeHref) {
+      throw new Response("Выберите другого сотрудника для переноса продаж.", { status: 400 });
+    }
+  }
+
+  return { source, target };
+}
+
+function getEmployeeDocumentAttributeHref(documentType: EmployeeSaleDocumentType) {
+  return getAttributeHref("EMPLOYEE", documentType);
+}
+
+async function getEmployeeDocumentsPage(documentType: EmployeeSaleDocumentType, employeeHref: string, limit: number) {
+  const attributeHref = getEmployeeDocumentAttributeHref(documentType);
+  if (!attributeHref) return { configured: false, count: 0, rows: [] as JsonRecord[] };
+  const payload = await moysklad(`/entity/${documentType}`, {
+    limit: String(limit),
+    offset: "0",
+    filter: `${attributeHref}=${employeeHref}`,
+  });
+  const rows = Array.isArray(payload.rows) ? payload.rows.map(asRecord) : [];
+  return {
+    configured: true,
+    count: asNumber(asRecord(payload.meta).size, rows.length),
+    rows,
+  };
+}
+
+async function getEmployeeDeletionImpact(employeeHref: string) {
+  const entries = await Promise.all(employeeSaleDocumentTypes.map(async (documentType) => {
+    const page = await getEmployeeDocumentsPage(documentType, employeeHref, 1);
+    return [documentType, page] as const;
+  }));
+  const counts = Object.fromEntries(entries.map(([documentType, page]) => [documentType, page.count])) as Record<EmployeeSaleDocumentType, number>;
+  const unconfigured = entries.filter(([, page]) => !page.configured).map(([documentType]) => documentType);
+  return {
+    counts,
+    total: employeeSaleDocumentTypes.reduce((sum, documentType) => sum + counts[documentType], 0),
+    unconfigured,
+  };
+}
+
+async function updateDocumentEmployee(
+  documentType: EmployeeSaleDocumentType,
+  document: JsonRecord,
+  targetEmployeeHref: string,
+) {
+  const id = asString(document.id) || getIdFromHref(asString(asRecord(document.meta).href));
+  const attributeHref = getEmployeeDocumentAttributeHref(documentType);
+  if (!id || !attributeHref) throw new Response("Не удалось определить документ или поле сотрудника.", { status: 502 });
+  const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/${documentType}/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${getMoySkladToken()}`,
+      Accept: "application/json;charset=utf-8",
+      "Content-Type": "application/json;charset=utf-8",
+    },
+    body: JSON.stringify({
+      attributes: [{
+        meta: { href: attributeHref, type: "attributemetadata", mediaType: "application/json" },
+        value: meta(targetEmployeeHref, "customentity"),
+      }],
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Response(
+      getMoySkladError(payload, `Не удалось перенести документ ${asString(document.name, id)}.`),
+      { status: response.status },
+    );
+  }
+  return id;
+}
+
+async function deactivateManagedCrmUser(id: string, data: AppData) {
+  if (!isSupabaseCrmEnabled() || !isUuid(id)) {
+    const index = data.users.findIndex((user) => user.id === id);
+    if (index >= 0) data.users[index] = { ...data.users[index], active: false };
+    await writeData(data);
+    return index >= 0 ? publicUser(data.users[index]) : null;
+  }
+  const rows = await supabaseFetch(`/rest/v1/crm_users?id=eq.${encodeURIComponent(id)}&select=*`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ active: false }),
+  }) as JsonRecord[];
+  return rows[0] ? sanitizeManagedCrmUser(rows[0]) : null;
+}
+
+async function reassignEmployeeSalesAndDelete(
+  sourceId: string,
+  targetId: string,
+  batchSize: number,
+  data: AppData,
+  actor: CrmUser,
+) {
+  const { source, target } = await getEmployeeReassignmentUsers(sourceId, targetId, data, actor);
+  if (!target) throw new Response("Выберите администратора для переноса продаж.", { status: 400 });
+  const sourceHref = asString(source.moySkladEmployeeHref);
+  const targetHref = asString(target.moySkladEmployeeHref);
+  let capacity = Math.max(1, Math.min(10, Math.trunc(batchSize) || 5));
+  const processed: Array<{ id: string; type: EmployeeSaleDocumentType }> = [];
+
+  for (const documentType of employeeSaleDocumentTypes) {
+    if (capacity <= 0) break;
+    const page = await getEmployeeDocumentsPage(documentType, sourceHref, capacity);
+    for (const document of page.rows) {
+      const id = await updateDocumentEmployee(documentType, document, targetHref);
+      processed.push({ id, type: documentType });
+      capacity -= 1;
+      if (capacity <= 0) break;
+    }
+  }
+
+  const impact = await getEmployeeDeletionImpact(sourceHref);
+  if (impact.total > 0) {
+    salesReportCache.clear();
+    return { completed: false, processed: processed.length, remaining: impact.total, impact };
+  }
+
+  const moySkladRemoval = await removeMoySkladEmployeeForCrmUser({
+    name: source.name,
+    moySkladEmployeeHref: sourceHref,
+  }, { archiveOnFailure: false });
+  if (moySkladRemoval.status !== "deleted" && moySkladRemoval.status !== "not_found") {
+    return {
+      completed: false,
+      processed: processed.length,
+      remaining: 0,
+      impact,
+      moySkladRemoval,
+      finalizationFailed: true,
+    };
+  }
+
+  let localOrdersChanged = false;
+  data.orders = data.orders.map((order) => {
+    if (normalizeEmployeeKey(order.employeeName) !== normalizeEmployeeKey(source.name)) return order;
+    localOrdersChanged = true;
+    return { ...order, employeeName: target.name };
+  });
+  if (localOrdersChanged) await writeData(data);
+  const user = await deactivateManagedCrmUser(sourceId, data);
+  salesReportCache.clear();
+  return {
+    completed: true,
+    processed: processed.length,
+    remaining: 0,
+    impact,
+    user,
+    target: { id: target.id, name: target.name },
+    moySkladRemoval,
+  };
+}
+
 function normalizeUiSettings(value: unknown): UiSettings {
   const input = asRecord(value);
   const theme = ["blue", "green", "violet", "red"].includes(asString(input.theme)) ? asString(input.theme) : "blue";
@@ -1413,6 +1622,10 @@ function normalizeDeliveryRow(row: JsonRecord): Delivery {
   };
 }
 
+function joinDeliveryPhones(primary: unknown, secondary: unknown) {
+  return [...new Set([asString(primary).trim(), asString(secondary).trim()].filter(Boolean))].join(" / ");
+}
+
 function deliveryPayload(input: JsonRecord, user: CrmUser) {
   const now = new Date().toISOString();
   return {
@@ -1422,7 +1635,7 @@ function deliveryPayload(input: JsonRecord, user: CrmUser) {
     document_url: asString(input.documentUrl),
     branch_name: asString(input.branchName),
     customer_name: asString(input.customerName),
-    customer_phone: asString(input.customerPhone),
+    customer_phone: joinDeliveryPhones(input.customerPhone, input.customerPhoneSecondary),
     delivery_address: asString(input.address ?? input.deliveryAddress),
     scheduled_at: asString(input.scheduledAt, now),
     employee_name: asString(input.employeeName),
@@ -1431,6 +1644,40 @@ function deliveryPayload(input: JsonRecord, user: CrmUser) {
     notes: asString(input.comment ?? input.notes),
     created_by: user.name,
   };
+}
+
+async function createDeliveryRecord(input: JsonRecord, user: CrmUser, data: AppData) {
+  if (isSupabaseCrmEnabled()) {
+    const rows = await supabaseFetch("/rest/v1/business_deliveries?select=id,document_id,document_type,document_name,document_url,branch_name,customer_name,customer_phone,delivery_address,scheduled_at,employee_name,items,status,notes,created_by,created_at,updated_at", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(deliveryPayload(input, user)),
+    }) as JsonRecord[];
+    if (rows[0]) return normalizeDeliveryRow(rows[0]);
+    throw new Response("Supabase не вернул созданную доставку.", { status: 502 });
+  }
+
+  const delivery: Delivery = {
+    id: randomUUID(),
+    documentId: asString(input.documentId),
+    documentType: asString(input.documentType),
+    documentName: asString(input.documentName),
+    documentUrl: asString(input.documentUrl),
+    scheduledAt: normalizeApiMoment(input.scheduledAt),
+    createdAt: new Date().toISOString(),
+    customerName: asString(input.customerName),
+    customerPhone: joinDeliveryPhones(input.customerPhone, input.customerPhoneSecondary),
+    deliveryAddress: asString(input.address ?? input.deliveryAddress),
+    branchName: asString(input.branchName),
+    employeeName: asString(input.employeeName),
+    items: Array.isArray(input.items) ? input.items.map((item) => ({ name: asString(asRecord(item).name), quantity: asNumber(asRecord(item).quantity, 1) })) : [],
+    status: asString(input.status, "new"),
+    amount: asNumber(input.amount),
+    notes: asString(input.comment ?? input.notes),
+  };
+  data.deliveries.unshift(delivery);
+  await writeData(data);
+  return delivery;
 }
 
 function deliveryUpdatePayload(input: JsonRecord) {
@@ -1511,6 +1758,7 @@ function upsertSessionUser(data: AppData, value: unknown) {
     permissions: normalizeCrmPermissions(role, row.permissions),
     active: row.active !== false,
     passwordHash: "",
+    moySkladEmployeeHref: asString(row.moySkladEmployeeHref ?? row.moysklad_employee_href),
   };
   const index = data.users.findIndex((item) => item.id === id);
   if (index >= 0) data.users[index] = { ...data.users[index], ...user, passwordHash: data.users[index].passwordHash };
@@ -1614,17 +1862,25 @@ async function getMoySkladPlainCustomEntityOptions(entityId: string): Promise<Cu
 
 async function getMoySkladCustomEntityOptionsWithToken(entityId: string, token: string, fallback: PaymentOption[] = []): Promise<PaymentOption[]> {
   if (!entityId || !token) return fallback;
-  const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/customentity/${encodeURIComponent(entityId)}?limit=100`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
-  });
-  const payload = asRecord(await response.json().catch(() => null));
-  if (!response.ok) {
-    throw new Response(
-      getMoySkladError(payload, "Не удалось загрузить сотрудников из МойСклад."),
-      { status: response.status },
-    );
+  const rows: unknown[] = [];
+  for (let offset = 0; offset < 10_000; offset += 100) {
+    const url = new URL(`${MOYSKLAD_BASE_URL}/entity/customentity/${encodeURIComponent(entityId)}`);
+    url.searchParams.set("limit", "100");
+    url.searchParams.set("offset", String(offset));
+    const response = await moyskladFetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
+    });
+    const payload = asRecord(await response.json().catch(() => null));
+    if (!response.ok) {
+      throw new Response(
+        getMoySkladError(payload, "Не удалось загрузить сотрудников из МойСклад."),
+        { status: response.status },
+      );
+    }
+    const pageRows = Array.isArray(payload.rows) ? payload.rows : [];
+    rows.push(...pageRows);
+    if (pageRows.length < 100) break;
   }
-  const rows = Array.isArray(payload.rows) ? payload.rows : [];
   if (!rows.length) return fallback;
   return rows.map((value: unknown) => {
     const row = asRecord(value);
@@ -1730,11 +1986,146 @@ async function deleteMoySkladEmployeeEntry(href: string, token: string) {
   }
 }
 
+const deletedMoySkladEmployeeMarkers = [
+  "[ordo_deleted_employee",
+  "[crm удаление",
+  "crm delete",
+] as const;
+
+const restorableCrmEmployeeMarkers = ["[crm удаление", "crm delete"] as const;
+
+function normalizeEmployeeDescription(value: unknown) {
+  return asString(value).toLocaleLowerCase("ru-RU").replace(/\s+/g, " ").trim();
+}
+
+function hasRestorableCrmEmployeeMarker(value: unknown) {
+  const description = normalizeEmployeeDescription(value);
+  return restorableCrmEmployeeMarkers.some((marker) => description.includes(marker));
+}
+
+function removeCrmEmployeeDeletionMarkers(value: unknown) {
+  return asString(value)
+    .split(/\r?\n/)
+    .filter((line) => !hasRestorableCrmEmployeeMarker(line))
+    .join("\n")
+    .trim();
+}
+
 function isDeletedMoySkladEmployee(employee: Pick<PaymentOption, "archived" | "comment">) {
   if (employee.archived) return true;
-  const description = asString(employee.comment).toLocaleLowerCase("ru-RU");
-  return description.includes("[ordo_deleted_employee")
-    || description.includes("[crm удаление");
+  const description = normalizeEmployeeDescription(employee.comment);
+  return deletedMoySkladEmployeeMarkers.some((marker) => description.includes(marker));
+}
+
+async function getArchivedCrmEmployees() {
+  const configs = getMoySkladEmployeeEntityConfigs();
+  if (!configs.length) {
+    throw new Response("Не настроены справочники сотрудников МойСклад.", { status: 503 });
+  }
+  const entries = new Map<string, { id: string; href: string; name: string; description: string; branchIds: string[] }>();
+  for (const config of configs) {
+    const rows = await getMoySkladCustomEntityOptionsWithToken(config.entityId, config.token, []);
+    for (const row of rows) {
+      const href = asString(row.href);
+      if (!href || !hasRestorableCrmEmployeeMarker(row.comment)) continue;
+      const existing = entries.get(href);
+      entries.set(href, {
+        id: href,
+        href,
+        name: asString(row.name).trim(),
+        description: asString(row.comment),
+        branchIds: [...new Set([...(existing?.branchIds || []), ...config.branchIds])],
+      });
+    }
+  }
+  return [...entries.values()].sort((left, right) => left.name.localeCompare(right.name, "ru", { sensitivity: "base" }));
+}
+
+async function reactivateCrmUserForMoySkladEmployee(
+  employee: { href: string; name: string; branchIds: string[] },
+  data: AppData,
+) {
+  if (!isSupabaseCrmEnabled()) {
+    const index = data.users.findIndex((user) =>
+      user.moySkladEmployeeHref === employee.href
+      || normalizeEmployeeKey(user.name) === normalizeEmployeeKey(employee.name)
+    );
+    if (index < 0) return { status: "not_found" };
+    data.users[index] = { ...data.users[index], active: true, moySkladEmployeeHref: employee.href };
+    await writeData(data);
+    return { status: "reactivated", userId: data.users[index].id };
+  }
+
+  const rows = await supabaseGet("/rest/v1/crm_users", {
+    select: "id,login,name,branches,active,moysklad_employee_href",
+    order: "name.asc",
+  }) as JsonRecord[];
+  const existing = rows.find((row) => asString(row.moysklad_employee_href) === employee.href)
+    ?? rows.find((row) => normalizeEmployeeKey(row.name) === normalizeEmployeeKey(employee.name));
+  const branches = normalizeCrmBranches(employee.branchIds);
+  if (existing) {
+    const nextBranches = [...new Set([...normalizeCrmBranches(existing.branches), ...branches])];
+    const id = asString(existing.id);
+    await supabaseFetch(`/rest/v1/crm_users?id=eq.${encodeURIComponent(id)}&select=id`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        active: true,
+        moysklad_employee_href: employee.href,
+        ...(nextBranches.length ? { branches: nextBranches } : {}),
+      }),
+    });
+    return { status: "reactivated", userId: id };
+  }
+
+  const usedLogins = new Set(rows.map((row) => asString(row.login).trim().toLowerCase()).filter(Boolean));
+  const employeeIdPrefix = getIdFromHref(employee.href).slice(0, 6) || randomUUID().slice(0, 6);
+  const login = makeEmployeeLogin(`emp-restored-${employeeIdPrefix}`, usedLogins);
+  const created = await supabaseFetch("/rest/v1/crm_users?select=id", {
+    method: "POST",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({
+      login,
+      name: employee.name,
+      position: "Сотрудник МойСклад",
+      salary: 0,
+      role: "seller",
+      branches: branches.length ? branches : ["ayu", "besh"],
+      permissions: normalizeCrmPermissions("seller", []),
+      active: true,
+      password_hash: null,
+      moysklad_employee_href: employee.href,
+    }),
+  }) as JsonRecord[];
+  return { status: "created", userId: asString(created[0]?.id) };
+}
+
+async function restoreArchivedCrmEmployee(employeeHref: string, data: AppData) {
+  const employees = await getArchivedCrmEmployees();
+  const employee = employees.find((item) => item.href === employeeHref);
+  if (!employee) throw new Response("Архивный сотрудник с пометкой CRM delete не найден.", { status: 404 });
+  const config = getMoySkladEmployeeEntityConfigs().find((item) =>
+    employee.href.includes(`/entity/customentity/${item.entityId}/`)
+  );
+  if (!config) throw new Response("Не найден токен справочника этого сотрудника.", { status: 409 });
+  const response = await moyskladFetch(employee.href, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      Accept: "application/json;charset=utf-8",
+      "Content-Type": "application/json;charset=utf-8",
+    },
+    body: JSON.stringify({
+      archived: false,
+      description: removeCrmEmployeeDeletionMarkers(employee.description),
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Response(getMoySkladError(payload, "Не удалось восстановить сотрудника в МойСклад."), { status: response.status });
+  }
+  const crm = await reactivateCrmUserForMoySkladEmployee(employee, data);
+  return { employee: { ...employee, description: removeCrmEmployeeDeletionMarkers(employee.description) }, crm };
 }
 
 async function getAllMoySkladEmployeesRemote(options: { includeDeleted?: boolean } = {}) {
@@ -1791,6 +2182,28 @@ async function getAllMoySkladEmployeesRemote(options: { includeDeleted?: boolean
     .sort((left, right) => left.name.localeCompare(right.name, "ru", { sensitivity: "base" }));
 }
 
+function canSelectSaleEmployee(user: CrmUser) {
+  return user.role === "admin" || user.role === "owner";
+}
+
+async function enforceSaleEmployee(payload: JsonRecord, user: CrmUser) {
+  if (canSelectSaleEmployee(user)) return payload;
+  const employees = await getAllMoySkladEmployeesRemote();
+  const linkedHref = asString(user.moySkladEmployeeHref);
+  const normalizedUserName = normalizeEmployeeKey(user.name);
+  const employee = employees.find((item) => linkedHref && item.href === linkedHref)
+    ?? employees.find((item) => normalizeEmployeeKey(item.name) === normalizedUserName);
+  if (!employee) {
+    throw new Response(
+      `Сотрудник «${user.name}» не найден в МойСклад. Синхронизируйте сотрудников или проверьте имя CRM-аккаунта.`,
+      { status: 409 },
+    );
+  }
+  payload.employeeName = user.name || employee.name;
+  payload.employeeHref = employee.href;
+  return payload;
+}
+
 async function getProducts(search: string, storeHref = "") {
   const normalizedSearch = search.trim();
   if (normalizedSearch.length < 2) return [];
@@ -1813,13 +2226,16 @@ async function getProducts(search: string, storeHref = "") {
     }
   }
   const selectedRows = allRows.slice(0, 50);
-  const stockValues = await Promise.all(
-    selectedRows.map((value) => {
-      const row = asRecord(value);
-      return getMoySkladProductStock(asString(asRecord(row.meta).href), storeHref).catch(() => 0);
-    }),
-  );
-  return selectedRows.map((value, index) => mapMoySkladProductForSales(value, index, stockValues[index] ?? 0));
+  const [stockValues, currenciesByHref] = await Promise.all([
+    Promise.all(
+      selectedRows.map((value) => {
+        const row = asRecord(value);
+        return getMoySkladProductStock(asString(asRecord(row.meta).href), storeHref).catch(() => 0);
+      }),
+    ),
+    getMoySkladAccountingCurrencies().catch(() => new Map<string, AccountingCurrency>()),
+  ]);
+  return selectedRows.map((value, index) => mapMoySkladProductForSales(value, index, stockValues[index] ?? 0, currenciesByHref));
 }
 
 function getProductSearchQueries(search: string) {
@@ -1844,8 +2260,11 @@ function getProductSalePrice(row: JsonRecord, preferredName = process.env.MOYSKL
   return asNumber(selected?.value) / 100;
 }
 
-function getProductBuyPrice(row: JsonRecord) {
-  return asNumber(asRecord(row.buyPrice).value) / 100;
+function getProductBuyPrice(row: JsonRecord, currenciesByHref = new Map<string, AccountingCurrency>()) {
+  const buyPrice = asRecord(row.buyPrice);
+  const rawCost = fromMoySkladPrice(buyPrice.value);
+  const currency = resolveAccountingCurrency(asRecord(buyPrice.currency), currenciesByHref);
+  return roundMoney(isUsdCurrency(currency) ? rawCost * getReportUsdRate() : rawCost);
 }
 
 async function getMoySkladProductStock(productHref: string, storeHref = "") {
@@ -1871,7 +2290,12 @@ async function getMoySkladProductStock(productHref: string, storeHref = "") {
   return normalized;
 }
 
-function mapMoySkladProductForSales(value: unknown, index: number, stock = 0) {
+function mapMoySkladProductForSales(
+  value: unknown,
+  index: number,
+  stock = 0,
+  currenciesByHref = new Map<string, AccountingCurrency>(),
+) {
   const row = asRecord(value);
   return {
     id: index + 1,
@@ -1883,7 +2307,7 @@ function mapMoySkladProductForSales(value: unknown, index: number, stock = 0) {
     article: asString(row.article),
     barcode: getProductBarcode(row),
     price: getProductSalePrice(row),
-    cost: getProductBuyPrice(row),
+    cost: getProductBuyPrice(row, currenciesByHref),
     stock,
   };
 }
@@ -2281,6 +2705,26 @@ async function getStoreHrefForRetailStore(token: string, retailStoreHref: string
   return asString(asRecord(asRecord(payload?.store).meta).href);
 }
 
+function isDebtSaleInput(input: JsonRecord) {
+  return asString(input.paymentScenario).toLowerCase() === "debt"
+    || asString(input.paymentTypeName).toLowerCase().includes("долг");
+}
+
+function getMoySkladDebtorTag() {
+  return String(process.env.MOYSKLAD_DEBTOR_TAG || "должники").trim();
+}
+
+async function getCounterpartyTags(token: string, href: string) {
+  const response = await moyskladFetch(href, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
+  });
+  const counterparty = asRecord(await response.json().catch(() => null));
+  if (!response.ok) throw new Response("Не удалось получить группы контрагента из МойСклад.", { status: response.status });
+  return Array.isArray(counterparty.tags)
+    ? counterparty.tags.map(String).map((value) => value.trim()).filter(Boolean)
+    : [];
+}
+
 async function updateCounterpartyContact(token: string, href: string, input: JsonRecord) {
   const payload: JsonRecord = {};
   const phone = asString(input.customerPhone).trim();
@@ -2292,11 +2736,17 @@ async function updateCounterpartyContact(token: string, href: string, input: Jso
   const okpo = asString(input.customerOkpo).trim();
   const email = asString(input.customerEmail).trim();
   const tags = Array.isArray(input.customerGroups) ? input.customerGroups.map(String).map((value) => value.trim()).filter(Boolean) : [];
+  if (isDebtSaleInput(input)) {
+    const debtorTag = getMoySkladDebtorTag();
+    const existingTags = await getCounterpartyTags(token, href);
+    tags.push(...existingTags);
+    if (debtorTag) tags.push(debtorTag);
+  }
 
   if (phone) payload.phone = phone;
   if (email) payload.email = email;
   if (address) payload.actualAddress = address;
-  if (tags.length) payload.tags = tags;
+  if (tags.length) payload.tags = [...new Set(tags)];
   if (bank || bik || settlementAccount || corrAccount || okpo) {
     const lines = [];
     if (bank) lines.push(`Банк: ${bank}`);
@@ -2317,7 +2767,11 @@ async function updateCounterpartyContact(token: string, href: string, input: Jso
 }
 
 async function getOrCreateCounterparty(token: string, input: JsonRecord) {
-  if (asString(input.agentHref)) return asString(input.agentHref);
+  if (asString(input.agentHref)) {
+    const href = asString(input.agentHref);
+    if (isDebtSaleInput(input)) await updateCounterpartyContact(token, href, input);
+    return href;
+  }
   if (input.customerMode === "retail") return getMoySkladEnvValue("AGENT_HREF");
   if (input.customerMode === "existing" && asString(input.customerHref)) {
     await updateCounterpartyContact(token, asString(input.customerHref), input);
@@ -2327,6 +2781,8 @@ async function getOrCreateCounterparty(token: string, input: JsonRecord) {
   if (!customerName) throw new Response("Укажите ФИО клиента.", { status: 400 });
   const payload: JsonRecord = { name: customerName, description: "Создано автоматически из Ordo CRM" };
   const tags = Array.isArray(input.customerGroups) ? input.customerGroups.map(String).map((value) => value.trim()).filter(Boolean) : [];
+  const debtorTag = getMoySkladDebtorTag();
+  if (isDebtSaleInput(input) && debtorTag) tags.push(debtorTag);
   const bank = asString(input.customerBank).trim();
   const bik = asString(input.customerBik).trim();
   const settlementAccount = asString(input.customerSettlementAccount).trim();
@@ -2349,7 +2805,7 @@ async function getOrCreateCounterparty(token: string, input: JsonRecord) {
   if (phone) payload.phone = phone;
   if (email) payload.email = email;
   if (address) payload.actualAddress = address;
-  if (tags.length) payload.tags = tags;
+  if (tags.length) payload.tags = [...new Set(tags)];
 
   const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/counterparty`, {
     method: "POST",
@@ -2521,30 +2977,33 @@ async function getCommercialCustomerOrders(customerHref: string) {
 async function createIncomingPayment(token: string, input: JsonRecord) {
   const amount = roundMoney(asNumber(input.amount));
   if (amount <= 0) return null;
+  const organizationHref = asString(input.organizationHref);
+  const agentHref = asString(input.agentHref);
+  if (!organizationHref) throw new Response("Для входящего платежа не указано юрлицо.", { status: 500 });
+  if (!agentHref) throw new Response("Для входящего платежа не указан контрагент.", { status: 400 });
   const sum = toMoySkladPrice(amount);
   const payload: JsonRecord = {
-    organization: meta(asString(input.organizationHref), "organization"),
-    agent: meta(asString(input.agentHref), "counterparty"),
+    organization: meta(organizationHref, "organization"),
+    agent: meta(agentHref, "counterparty"),
     sum,
     description: asString(input.description, "Создано автоматически из Ordo CRM"),
-    operations: [
-      {
-        meta: asRecord(input.demandMeta),
-        linkedSum: sum,
-      },
-    ],
   };
+  const demandMeta = asRecord(input.demandMeta);
+  if (asString(demandMeta.href)) {
+    payload.operations = [{ meta: demandMeta, linkedSum: sum }];
+  }
   const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/paymentin`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8", "Content-Type": "application/json;charset=utf-8" },
     body: JSON.stringify(payload),
   });
   const created = await response.json().catch(() => null);
-  if (!response.ok) throw new Response(getMoySkladError(created, "Отгрузка создана, но не удалось создать входящий платеж."), { status: response.status });
+  if (!response.ok) throw new Response(getMoySkladError(created, asString(input.errorMessage, "Не удалось создать входящий платеж.")), { status: response.status });
   return {
     id: asString(created?.id),
     name: asString(created?.name),
     sum: asNumber(created?.sum),
+    amount: fromMoySkladPrice(created?.sum),
     meta: asRecord(created?.meta),
   };
 }
@@ -2779,9 +3238,10 @@ function getReportMoneyFromTextAttribute(document: JsonRecord, attribute: string
   return match ? asNumber(match[0]) : 0;
 }
 
-function isUsdCurrency(currency: JsonRecord) {
-  const value = [currency.isoCode, currency.name, currency.fullName].filter(Boolean).join(" ").toLowerCase();
-  return value.includes("usd") || value.includes("доллар");
+function isUsdCurrency(value: unknown) {
+  const currency = asRecord(value);
+  const normalized = [currency.isoCode, currency.name, currency.fullName].filter(Boolean).join(" ").toLowerCase();
+  return normalized.includes("usd") || normalized.includes("доллар");
 }
 
 function getReportUsdRate() {
@@ -2789,41 +3249,55 @@ function getReportUsdRate() {
   return Number.isFinite(rate) && rate > 0 ? rate : 88;
 }
 
-function getReportPositionCostTotal(position: JsonRecord) {
+function getReportPositionCostTotal(position: JsonRecord, currenciesByHref = new Map<string, AccountingCurrency>()) {
   const assortment = asRecord(position.assortment);
   const buyPrice = asRecord(assortment.buyPrice);
   const rawCost = fromMoySkladPrice(buyPrice.value);
   if (rawCost <= 0) return 0;
-  const currency = asRecord(buyPrice.currency);
+  const currency = resolveAccountingCurrency(asRecord(buyPrice.currency), currenciesByHref);
   const cost = isUsdCurrency(currency) ? rawCost * getReportUsdRate() : rawCost;
   return roundMoney(cost * asNumber(position.quantity));
 }
 
-function mapMoySkladReportDocument(value: unknown, documentType: string) {
+function mapMoySkladReportDocument(
+  value: unknown,
+  documentType: string,
+  currenciesByHref = new Map<string, AccountingCurrency>(),
+) {
   const row = asRecord(value);
   const positionsRecord = asRecord(row.positions);
   const positions = Array.isArray(positionsRecord.rows) ? positionsRecord.rows.map(asRecord) : [];
   const agent = asRecord(row.agent);
   const customerType = normalizeCounterpartyType(agent);
-  const amount = fromMoySkladPrice(row.sum);
+  const currency = getReconciliationCurrency(row, currenciesByHref);
+  const usd = isUsdCurrency(currency);
+  const exchangeRate = usd ? getReportUsdRate() : 1;
+  const convert = (money: number) => roundMoney(money * exchangeRate);
+  const sourceAmount = fromMoySkladPrice(row.sum);
+  const amount = convert(sourceAmount);
   const paidAttribute = getReportNumberAttribute(row, "PAID", documentType);
   const unpaidAttribute = getReportNumberAttribute(row, "UNPAID", documentType);
-  const paid = documentType === "retaildemand"
+  const sourcePaid = documentType === "retaildemand"
     ? paidAttribute !== null
       ? paidAttribute
       : roundMoney(fromMoySkladPrice(row.cashSum) + fromMoySkladPrice(row.noCashSum))
     : Math.max(fromMoySkladPrice(row.payedSum), paidAttribute ?? 0);
-  const unpaid = unpaidAttribute !== null ? unpaidAttribute : Math.max(0, roundMoney(amount - paid));
-  const costTotal = roundMoney(positions.reduce((sum, position) => sum + getReportPositionCostTotal(position), 0));
-  const commission = roundMoney(getReportMoneyFromTextAttribute(row, "COMMISSION", documentType));
-  const netProfitAttribute = getReportNumberAttribute(row, "NET_PROFIT", documentType);
-  const netProfit = netProfitAttribute !== null ? netProfitAttribute : roundMoney(amount - commission - costTotal);
+  const sourceUnpaid = unpaidAttribute !== null ? unpaidAttribute : Math.max(0, roundMoney(sourceAmount - sourcePaid));
+  const paid = convert(sourcePaid);
+  const unpaid = convert(sourceUnpaid);
+  const costTotal = roundMoney(positions.reduce((sum, position) => sum + getReportPositionCostTotal(position, currenciesByHref), 0));
+  const sourceCommission = roundMoney(getReportMoneyFromTextAttribute(row, "COMMISSION", documentType));
+  const commission = convert(sourceCommission);
+  const netProfit = roundMoney(amount - commission - costTotal);
   const products = positions.map((position: JsonRecord) => {
     const assortment = asRecord(position.assortment);
     const folder = asRecord(assortment.productFolder);
-    const price = fromMoySkladPrice(position.price);
+    const sourcePrice = fromMoySkladPrice(position.price);
+    const price = convert(sourcePrice);
     const quantity = asNumber(position.quantity);
     return {
+      index: positions.indexOf(position),
+      positionId: asString(position.id) || getIdFromHref(asString(asRecord(position.meta).href)),
       code: asString(assortment.code),
       name: asString(assortment.name ?? position.name, "Товар"),
       categoryName: asString(folder.name),
@@ -2831,6 +3305,10 @@ function mapMoySkladReportDocument(value: unknown, documentType: string) {
       quantity,
       price,
       sum: roundMoney(price * quantity),
+      sourcePrice,
+      sourceSum: roundMoney(sourcePrice * quantity),
+      currencyIsoCode: currency.isoCode || (usd ? "USD" : "KGS"),
+      exchangeRate,
       isGift: price <= 0,
     };
   });
@@ -2843,10 +3321,17 @@ function mapMoySkladReportDocument(value: unknown, documentType: string) {
     amount,
     paid,
     unpaid,
+    sourceAmount,
+    sourcePaid,
+    sourceUnpaid,
+    currencyIsoCode: currency.isoCode || (usd ? "USD" : "KGS"),
+    currencyName: currency.name || (usd ? "Доллар США" : "сом"),
+    exchangeRate,
     commission,
     netProfit,
     storeName: asString(asRecord(row.retailStore).name || asRecord(row.store).name),
     organizationName: asString(asRecord(row.organization).name),
+    organizationHref: asString(asRecord(asRecord(row.organization).meta).href),
     customerId: asString(agent.id) || getIdFromHref(asString(asRecord(agent.meta).href)),
     customerHref: asString(asRecord(agent.meta).href),
     customerName: asString(agent.name),
@@ -2862,6 +3347,19 @@ function mapMoySkladReportDocument(value: unknown, documentType: string) {
     productText: products.map((item: { name: string; quantity: number }) => `${item.name} x ${item.quantity}`).join(", "),
     products,
   };
+}
+
+function getReconciliationCurrency(row: JsonRecord, currenciesByHref: Map<string, AccountingCurrency>) {
+  const rate = asRecord(row.rate);
+  return resolveAccountingCurrency(asRecord(rate.currency), currenciesByHref);
+}
+
+function mapMoySkladReconciliationDocument(
+  value: unknown,
+  documentType: string,
+  currenciesByHref: Map<string, AccountingCurrency>,
+) {
+  return mapMoySkladReportDocument(value, documentType, currenciesByHref);
 }
 
 async function loadMoySkladDocuments(documentType: string, dateFrom: string, dateTo: string, options: Record<string, string | number> = {}) {
@@ -2895,6 +3393,10 @@ function canViewReportProfit(user: CrmUser | null) {
   return user.permissions.includes("reportProfit");
 }
 
+function canEditReportSales(user: CrmUser | null) {
+  return Boolean(user && documentPriceEditRoles.has(user.role) && user.permissions.includes("editDocumentPrices"));
+}
+
 function sanitizeSalesReportForUser(report: { rows: Array<Record<string, unknown>>; canViewProfit: boolean; totals?: JsonRecord; dateFrom?: string; dateTo?: string }, user: CrmUser | null) {
   const allowed = canViewReportProfit(user);
   if (allowed) return { ...report, canViewProfit: true };
@@ -2919,6 +3421,7 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
   const customerType = url.searchParams.get("customerType") || "";
   const search = (url.searchParams.get("search") || "").trim().toLowerCase();
   const cacheKey = [
+    "currency-v2",
     dateFrom,
     dateTo,
     documentTypes.join(","),
@@ -2929,9 +3432,10 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
   ].join("|");
   const cached = salesReportCache.get(cacheKey);
   if (cached && Date.now() - cached.createdAt < SALES_REPORT_CACHE_TTL_MS) {
-    return sanitizeSalesReportForUser(cached.value, user || null);
+    return { ...sanitizeSalesReportForUser(cached.value, user || null), canEditSales: canEditReportSales(user || null) };
   }
 
+  const currenciesByHref = await getMoySkladAccountingCurrencies();
   const groups: JsonRecord[][] = [];
   for (const type of documentTypes) {
     groups.push(await loadMoySkladDocuments(type, dateFrom, dateTo, {
@@ -2940,7 +3444,7 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
     }));
     if (documentTypes.length > 1) await sleep(120);
   }
-  let rows = groups.flatMap((group, index) => group.map((row) => mapMoySkladReportDocument(row, documentTypes[index])));
+  let rows = groups.flatMap((group, index) => group.map((row) => mapMoySkladReportDocument(row, documentTypes[index], currenciesByHref)));
   if (customerType) rows = rows.filter((row) => row.customerType === customerType);
   if (search) {
     const first = rows.find((row) => [row.customerName, row.customerPhone, row.customerInn, row.name, row.productText].join(" ").toLowerCase().includes(search));
@@ -2964,7 +3468,114 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
     canViewProfit: true,
   };
   salesReportCache.set(cacheKey, { value: report, createdAt: Date.now() });
-  return sanitizeSalesReportForUser(report, user || null);
+  return { ...sanitizeSalesReportForUser(report, user || null), canEditSales: canEditReportSales(user || null) };
+}
+
+async function updateReportSalePositionPrice(payload: JsonRecord) {
+  const documentType = asString(payload.documentType);
+  const documentId = asString(payload.documentId);
+  const requestedPositionId = asString(payload.positionId);
+  const productIndex = Math.trunc(asNumber(payload.productIndex, -1));
+  const newPrice = toMoney(payload.price);
+  if (!["retaildemand", "demand"].includes(documentType)) throw new Response("Изменять цену можно только в продаже или отгрузке.", { status: 400 });
+  if (!documentId) throw new Response("Не найден документ продажи.", { status: 400 });
+  if (!Number.isFinite(newPrice) || newPrice < 0) throw new Response("Новая цена должна быть числом не меньше нуля.", { status: 400 });
+
+  const token = getMoySkladToken();
+  const documentUrl = `${MOYSKLAD_BASE_URL}/entity/${documentType}/${encodeURIComponent(documentId)}`;
+  const loadDocument = async () => {
+    const response = await moyskladFetch(`${documentUrl}?expand=agent,organization,store,retailStore,positions,positions.assortment,positions.assortment.productFolder`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
+    });
+    const document = asRecord(await response.json().catch(() => null));
+    if (!response.ok) throw new Response(getMoySkladError(document, "Не удалось загрузить продажу из МойСклад."), { status: response.status });
+    return document;
+  };
+
+  const original = await loadDocument();
+  const currenciesByHref = await getMoySkladAccountingCurrencies();
+  const documentCurrency = getReconciliationCurrency(original, currenciesByHref);
+  const documentExchangeRate = isUsdCurrency(documentCurrency) ? getReportUsdRate() : 1;
+  const positionsRecord = asRecord(original.positions);
+  const positions = Array.isArray(positionsRecord.rows) ? positionsRecord.rows.map(asRecord) : [];
+  const position = requestedPositionId
+    ? positions.find((item) => (asString(item.id) || getIdFromHref(asString(asRecord(item.meta).href))) === requestedPositionId)
+    : positions[productIndex];
+  if (!position) throw new Response("Позиция товара не найдена в документе.", { status: 404 });
+  const positionId = asString(position.id) || getIdFromHref(asString(asRecord(position.meta).href));
+  if (!positionId) throw new Response("У позиции товара отсутствует идентификатор МойСклад.", { status: 502 });
+  const previousSourcePrice = fromMoySkladPrice(position.price);
+  const previousPrice = roundMoney(previousSourcePrice * documentExchangeRate);
+  const sourceNewPrice = roundMoney(newPrice / documentExchangeRate);
+
+  const updateResponse = await moyskladFetch(`${documentUrl}/positions/${encodeURIComponent(positionId)}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8", "Content-Type": "application/json;charset=utf-8" },
+    body: JSON.stringify({ price: toMoySkladPrice(sourceNewPrice) }),
+  });
+  const updatedPosition = asRecord(await updateResponse.json().catch(() => null));
+  if (!updateResponse.ok) throw new Response(getMoySkladError(updatedPosition, "Не удалось изменить цену товара в МойСклад."), { status: updateResponse.status });
+
+  const updatedDocument = await loadDocument();
+  const recalculated = mapMoySkladReportDocument(updatedDocument, documentType, currenciesByHref);
+  const receivable = recalculated.commission > 0
+    ? roundMoney(Math.max(0, recalculated.amount - recalculated.commission))
+    : documentType === "retaildemand"
+      ? recalculated.amount
+      : roundMoney(Math.max(0, recalculated.amount - recalculated.paid));
+  let profitUpdated = false;
+  let receivableUpdated = false;
+  let profitWarning = "";
+  const netProfitHref = getAttributeHref("NET_PROFIT", documentType);
+  const receivableHref = getAttributeHref("RECEIVABLE", documentType);
+  const updatedAttributes = [
+    netProfitHref ? {
+      meta: { href: netProfitHref, type: "attributemetadata", mediaType: "application/json" },
+      value: Math.round(recalculated.netProfit),
+    } : null,
+    receivableHref ? {
+      meta: { href: receivableHref, type: "attributemetadata", mediaType: "application/json" },
+      value: Math.round(receivable),
+    } : null,
+  ].filter(Boolean);
+  if (updatedAttributes.length) {
+    const profitResponse = await moyskladFetch(documentUrl, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8", "Content-Type": "application/json;charset=utf-8" },
+      body: JSON.stringify({ attributes: updatedAttributes }),
+    });
+    if (profitResponse.ok) {
+      profitUpdated = Boolean(netProfitHref);
+      receivableUpdated = Boolean(receivableHref);
+    }
+    else {
+      const errorPayload = await profitResponse.json().catch(() => null);
+      profitWarning = getMoySkladError(errorPayload, "Цена изменена, но поля «К поступлению» и «Чистая прибыль» обновить не удалось.");
+    }
+  }
+
+  salesReportCache.clear();
+  reconciliationListCache.clear();
+  reconciliationDetailsCache.clear();
+  return {
+    document: {
+      id: documentId,
+      name: asString(updatedDocument.name),
+      type: documentType,
+      amount: recalculated.amount,
+      netProfit: recalculated.netProfit,
+      receivable,
+      webUrl: `https://online.moysklad.ru/app/#${documentType}/edit?id=${encodeURIComponent(documentId)}`,
+    },
+    position: {
+      id: positionId,
+      previousPrice,
+      price: newPrice,
+    },
+    profitUpdated,
+    receivableUpdated,
+    warning: profitWarning,
+  };
 }
 
 async function createReportReturn(payload: JsonRecord) {
@@ -3026,6 +3637,12 @@ async function createReportReturn(payload: JsonRecord) {
   });
   const created = asRecord(await createResponse.json().catch(() => null));
   if (!createResponse.ok) throw new Response(getMoySkladError(created, "Не удалось создать возврат."), { status: createResponse.status });
+  const telegramReturn = await sendTelegramReturnSafely(original, created, documentType, position, quantity);
+  const assortment = asRecord(position.assortment);
+  const fallbackReturnAmount = roundMoney(fromMoySkladPrice(position.price) * quantity);
+  const returnAmount = fromMoySkladPrice(created.sum) || fallbackReturnAmount;
+  const returnPrice = fromMoySkladPrice(position.price);
+  const originalDocumentName = asString(original.name);
   return {
     document: {
       id: asString(created.id),
@@ -3033,6 +3650,28 @@ async function createReportReturn(payload: JsonRecord) {
       type: returnType,
       webUrl: `https://online.moysklad.ru/app/#${returnType}/edit?id=${encodeURIComponent(asString(created.id))}`,
     },
+    receipt: {
+      receiptKind: "return",
+      documentNumber: asString(created.name),
+      sourceDocumentNumber: originalDocumentName,
+      dateTime: asString(created.moment ?? created.created, new Date().toISOString()),
+      storeName: asString(asRecord(original.retailStore).name || asRecord(original.store).name),
+      employeeName: getReportTextAttribute(original, "EMPLOYEE", documentType),
+      customerName: asString(asRecord(original.agent).name, "Розничный покупатель"),
+      items: [{
+        name: asString(assortment.name ?? position.name, "Товар"),
+        price: returnPrice,
+        quantity,
+        lineTotal: returnAmount,
+        isGift: returnPrice <= 0,
+      }],
+      baseTotal: returnAmount,
+      finalTotal: returnAmount,
+      paymentType: getReportPaymentType(original) || "Возврат",
+      paidAmount: returnAmount,
+      unpaidAmount: 0,
+    },
+    telegramReturn,
   };
 }
 
@@ -3166,10 +3805,9 @@ async function getMoySkladReconciliation(url: URL) {
   const dateFrom = normalizeReportDate(url.searchParams.get("dateFrom") || "2020-01-01", "from");
   const dateTo = normalizeReportDate(url.searchParams.get("dateTo") || new Date().toISOString().slice(0, 10), "to");
   const cacheKey = buildReconciliationCacheKey({ dateFrom, dateTo, customerType, search });
-  const desiredCount = offset + limit;
-  const state = await ensureReconciliationScanState(cacheKey, { dateFrom, dateTo, customerType, search }, desiredCount);
+  const state = await ensureReconciliationScanState(cacheKey, { dateFrom, dateTo, customerType, search }, offset + 1);
   const allDebtors = getSortedReconciliationDebtors(state);
-  const debtors = allDebtors.slice(offset, offset + limit).map(mapReconciliationDebtorAggregate);
+  const debtors = allDebtors;
   const totals = allDebtors.reduce((sum, debtor) => ({
     debt: roundMoney(sum.debt + debtor.debt),
     paid: roundMoney(sum.paid + debtor.paid),
@@ -3179,14 +3817,17 @@ async function getMoySkladReconciliation(url: URL) {
   return {
     debtors,
     totals,
+    usdRate: getReportUsdRate(),
     loadedAt: state.loadedAt,
     truncated: state.truncated,
     partial: state.partial,
     page: {
       offset,
       limit,
-      nextOffset: offset + limit,
-      hasMore: state.completed ? offset + limit < allDebtors.length : true,
+      nextOffset: offset + 1,
+      hasMore: !state.completed,
+      scannedChunks: state.scannedChunks,
+      scannedDocuments: state.scannedOffsets.retaildemand + state.scannedOffsets.demand,
     },
   };
 }
@@ -3210,7 +3851,10 @@ function createReconciliationScanState(): ReconciliationScanState {
     createdAt: Date.now(),
     loadedAt: new Date().toISOString(),
     debtorsByKey: new Map(),
+    creditsByAgentHref: new Map(),
+    paymentsLoaded: false,
     scannedOffsets: { retaildemand: 0, demand: 0 },
+    scannedChunks: 0,
     completed: false,
     partial: true,
     truncated: true,
@@ -3259,14 +3903,18 @@ function addReconciliationDocumentsToState(state: ReconciliationScanState, docum
 }
 
 function getSortedReconciliationDebtors(state: ReconciliationScanState) {
-  return [...state.debtorsByKey.values()].sort((left, right) =>
-    right.debt - left.debt
-    || new Date(right.lastMoment).getTime() - new Date(left.lastMoment).getTime()
-    || left.name.localeCompare(right.name, "ru")
-  );
+  return [...state.debtorsByKey.values()]
+    .map((debtor) => mapReconciliationDebtorAggregate(debtor, state.creditsByAgentHref.get(debtor.href) || 0))
+    .filter((debtor) => debtor.debt > 0)
+    .sort((left, right) =>
+      right.debt - left.debt
+      || new Date(right.lastMoment).getTime() - new Date(left.lastMoment).getTime()
+      || left.name.localeCompare(right.name, "ru")
+    );
 }
 
-function mapReconciliationDebtorAggregate(debtor: ReconciliationDebtorAggregate) {
+function mapReconciliationDebtorAggregate(debtor: ReconciliationDebtorAggregate, credit: number) {
+  const normalizedCredit = roundMoney(Math.max(0, credit));
   return {
     id: debtor.id,
     href: debtor.href,
@@ -3280,21 +3928,40 @@ function mapReconciliationDebtorAggregate(debtor: ReconciliationDebtorAggregate)
     lastMoment: debtor.lastMoment,
     documentCount: debtor.documentCount,
     amount: debtor.amount,
-    paid: debtor.paid,
-    debt: debtor.debt,
+    paid: normalizedCredit,
+    debt: roundMoney(Math.max(0, debtor.amount - normalizedCredit)),
   };
 }
 
 async function ensureReconciliationScanState(
   cacheKey: string,
   filters: { dateFrom: string; dateTo: string; customerType: string; search: string },
-  desiredCount: number,
+  desiredChunks: number,
 ) {
   const state = getFreshReconciliationScanState(cacheKey) || createReconciliationScanState();
+  state.creditsByAgentHref ||= new Map<string, number>();
+  state.paymentsLoaded ??= false;
+  const currenciesByHref = await getMoySkladAccountingCurrencies().catch(() => new Map<string, AccountingCurrency>());
+  if (!state.paymentsLoaded) {
+    const paymentRows = await moyskladRows("/entity/paymentin", {
+      limit: "1000",
+      order: "moment,desc",
+      expand: "agent,organization",
+    });
+    for (const row of paymentRows) {
+      const payment = mapReconciliationPayment(row, currenciesByHref);
+      if (!payment.agentHref || payment.amount <= 0) continue;
+      state.creditsByAgentHref.set(
+        payment.agentHref,
+        roundMoney((state.creditsByAgentHref.get(payment.agentHref) || 0) + payment.amount),
+      );
+    }
+    state.paymentsLoaded = true;
+  }
   if (!reconciliationListCache.has(cacheKey)) {
     reconciliationListCache.set(cacheKey, state);
   }
-  while (!state.completed && getSortedReconciliationDebtors(state).length < desiredCount) {
+  while (!state.completed && state.scannedChunks < desiredChunks) {
     const retailRows = await loadMoySkladDocuments("retaildemand", filters.dateFrom, filters.dateTo, {
       offset: state.scannedOffsets.retaildemand,
       limit: RECONCILIATION_BATCH_SIZE,
@@ -3308,27 +3975,38 @@ async function ensureReconciliationScanState(
     });
     state.scannedOffsets.retaildemand += retailRows.length;
     state.scannedOffsets.demand += demandRows.length;
+    state.scannedChunks += 1;
     const mapped = [
-      ...retailRows.map((row) => mapMoySkladReportDocument(row, "retaildemand")),
-      ...demandRows.map((row) => mapMoySkladReportDocument(row, "demand")),
+      ...retailRows.map((row) => mapMoySkladReconciliationDocument(row, "retaildemand", currenciesByHref)),
+      ...demandRows.map((row) => mapMoySkladReconciliationDocument(row, "demand", currenciesByHref)),
     ].filter((document) => matchesReconciliationDocument(document, filters));
     addReconciliationDocumentsToState(state, mapped);
+    state.createdAt = Date.now();
     state.loadedAt = new Date().toISOString();
     if (retailRows.length < RECONCILIATION_BATCH_SIZE && demandRows.length < RECONCILIATION_BATCH_SIZE) {
       state.completed = true;
-      state.truncated = false;
     }
+    state.partial = !state.completed;
+    state.truncated = !state.completed;
   }
   return state;
 }
 
-function mapReconciliationPayment(value: unknown) {
+function mapReconciliationPayment(value: unknown, currenciesByHref: Map<string, AccountingCurrency>) {
   const row = asRecord(value);
+  const currency = getReconciliationCurrency(row, currenciesByHref);
+  const usd = isUsdCurrency(currency);
+  const exchangeRate = usd ? getReportUsdRate() : 1;
+  const sourceAmount = fromMoySkladPrice(row.sum);
   return {
     id: asString(row.id),
     name: asString(row.name),
     moment: normalizeApiMoment(row.moment ?? row.created),
-    amount: fromMoySkladPrice(row.sum),
+    amount: roundMoney(sourceAmount * exchangeRate),
+    sourceAmount,
+    currencyIsoCode: currency.isoCode || (usd ? "USD" : "KGS"),
+    currencyName: currency.name || (usd ? "Доллар США" : "сом"),
+    exchangeRate,
     organizationName: asString(asRecord(row.organization).name),
     agentHref: asString(asRecord(asRecord(row.agent).meta).href),
     description: asString(row.description),
@@ -3336,12 +4014,13 @@ function mapReconciliationPayment(value: unknown) {
   };
 }
 
-function applyPaymentsToDebtDocuments(documents: Array<ReturnType<typeof mapMoySkladReportDocument>>, payments: Array<ReturnType<typeof mapReconciliationPayment>>) {
+function applyPaymentsToDebtDocuments(documents: ReconciliationDocument[], payments: Array<ReturnType<typeof mapReconciliationPayment>>) {
   const sortedDocuments = documents
     .map((document) => ({
       ...document,
-      debt: roundMoney(asNumber(document.unpaid)),
-      originalDebt: roundMoney(asNumber(document.unpaid)),
+      debt: roundMoney(asNumber(document.amount)),
+      originalDebt: roundMoney(asNumber(document.amount)),
+      paid: 0,
       appliedPayments: [] as Array<{ id: string; name: string; amount: number; moment: string }>,
     }))
     .sort((left, right) => new Date(left.moment).getTime() - new Date(right.moment).getTime());
@@ -3373,20 +4052,20 @@ function applyPaymentsToDebtDocuments(documents: Array<ReturnType<typeof mapMoyS
 
 function buildReconciliationAct(
   customerName: string,
-  documents: Array<ReturnType<typeof mapMoySkladReportDocument>>,
+  documents: ReconciliationDocument[],
   payments: Array<ReturnType<typeof mapReconciliationPayment>>,
 ) {
   const documentRows = documents.map((document) => ({
     id: `doc:${document.id}`,
     moment: document.moment,
-    operation: `${document.typeLabel} (${new Intl.DateTimeFormat("ru-RU", { dateStyle: "short" }).format(new Date(document.moment))}, № ${document.name})`,
+    operation: `${document.typeLabel} (${new Intl.DateTimeFormat("ru-RU", { dateStyle: "short" }).format(new Date(document.moment))}, № ${document.name})${document.exchangeRate > 1 ? ` · ${formatMoney(document.sourceAmount)} ${document.currencyIsoCode} × ${document.exchangeRate}` : ""}`,
     debit: roundMoney(document.amount),
     credit: 0,
   }));
   const paymentRows = payments.map((payment) => ({
     id: `payment:${payment.id}`,
     moment: payment.moment,
-    operation: `Входящий платёж (${new Intl.DateTimeFormat("ru-RU", { dateStyle: "short" }).format(new Date(payment.moment))}, № ${payment.name})`,
+    operation: `Входящий платёж (${new Intl.DateTimeFormat("ru-RU", { dateStyle: "short" }).format(new Date(payment.moment))}, № ${payment.name})${payment.exchangeRate > 1 ? ` · ${formatMoney(payment.sourceAmount)} ${payment.currencyIsoCode} × ${payment.exchangeRate}` : ""}`,
     debit: 0,
     credit: roundMoney(payment.amount),
   }));
@@ -3415,6 +4094,7 @@ async function getReconciliationDebtorDetails(id: string, url: URL) {
     return cached.value;
   }
   const customerHref = `${MOYSKLAD_BASE_URL}/entity/counterparty/${encodeURIComponent(id)}`;
+  const currenciesByHref = await getMoySkladAccountingCurrencies().catch(() => new Map<string, AccountingCurrency>());
   const retailRows = await loadMoySkladDocuments("retaildemand", dateFrom, dateTo, {
     filterAgentHref: customerHref,
   });
@@ -3423,20 +4103,22 @@ async function getReconciliationDebtorDetails(id: string, url: URL) {
     filterAgentHref: customerHref,
   });
   const documents = [
-    ...retailRows.map((row) => mapMoySkladReportDocument(row, "retaildemand")),
-    ...demandRows.map((row) => mapMoySkladReportDocument(row, "demand")),
+    ...retailRows.map((row) => mapMoySkladReconciliationDocument(row, "retaildemand", currenciesByHref)),
+    ...demandRows.map((row) => mapMoySkladReconciliationDocument(row, "demand", currenciesByHref)),
   ];
   const debtorDocuments = documents.filter((document) => document.unpaid > 0);
   if (!debtorDocuments.length) throw new Response("Должник не найден", { status: 404 });
 
   const paymentRows = await moyskladRows("/entity/paymentin", {
-    limit: "100",
+    limit: "1000",
     order: "moment,desc",
     filter: customerHref ? `agent=${customerHref}` : "",
     expand: "agent,organization",
   }).catch(() => []);
-  const payments = paymentRows.map(mapReconciliationPayment);
+  const payments = paymentRows.map((row) => mapReconciliationPayment(row, currenciesByHref));
   const adjustedDocuments = applyPaymentsToDebtDocuments(debtorDocuments, payments);
+  const act = buildReconciliationAct(debtorDocuments[0].customerName || "Без имени", debtorDocuments, payments);
+  const remainingDebt = roundMoney(Math.max(0, act.totals.debit - act.totals.credit));
   const debtor = {
     id,
     href: customerHref,
@@ -3449,12 +4131,13 @@ async function getReconciliationDebtorDetails(id: string, url: URL) {
     lastDocumentName: debtorDocuments[0].name,
     lastMoment: debtorDocuments[0].moment,
     documentCount: adjustedDocuments.length,
-    amount: roundMoney(debtorDocuments.reduce((sum, document) => sum + document.amount, 0)),
-    paid: roundMoney(adjustedDocuments.reduce((sum, document) => sum + asNumber(document.paid), 0)),
-    debt: roundMoney(adjustedDocuments.reduce((sum, document) => sum + asNumber(document.debt), 0)),
+    amount: act.totals.debit,
+    paid: act.totals.credit,
+    debt: remainingDebt,
   };
   const result = {
     debtor,
+    usdRate: getReportUsdRate(),
     totals: {
       debt: debtor.debt,
       amount: debtor.amount,
@@ -3468,11 +4151,18 @@ async function getReconciliationDebtorDetails(id: string, url: URL) {
       typeLabel: document.typeLabel,
       moment: document.moment,
       organizationName: document.organizationName,
+      organizationHref: document.organizationHref,
       storeName: document.storeName,
       amount: document.amount,
       paid: document.paid,
       debt: document.debt,
       originalDebt: document.originalDebt,
+      sourceAmount: document.sourceAmount,
+      sourcePaid: document.sourcePaid,
+      sourceUnpaid: document.sourceUnpaid,
+      currencyIsoCode: document.currencyIsoCode,
+      currencyName: document.currencyName,
+      exchangeRate: document.exchangeRate,
       paymentType: document.paymentType,
       comment: document.comment,
       customerId: document.customerId,
@@ -3485,10 +4175,60 @@ async function getReconciliationDebtorDetails(id: string, url: URL) {
       appliedPayments: document.appliedPayments,
     })),
     payments,
-    act: buildReconciliationAct(debtor.name, debtorDocuments, payments),
+    act,
   };
   reconciliationDetailsCache.set(cacheKey, { createdAt: Date.now(), value: result });
   return result;
+}
+
+async function createReconciliationIncomingPayment(id: string, input: JsonRecord, url: URL) {
+  if (!id) throw new Response("Не указан контрагент для входящего платежа.", { status: 400 });
+  const sourceAmount = roundMoney(asNumber(input.amount));
+  if (sourceAmount <= 0) throw new Response("Сумма платежа должна быть больше нуля.", { status: 400 });
+  const currency = asString(input.currency, "KGS").toUpperCase();
+  if (!['KGS', 'USD'].includes(currency)) throw new Response("Валюта платежа должна быть KGS или USD.", { status: 400 });
+  const exchangeRate = currency === "USD" ? getReportUsdRate() : 1;
+  const amount = roundMoney(sourceAmount * exchangeRate);
+  const details = await getReconciliationDebtorDetails(id, url);
+  const currentDebt = asNumber(asRecord(details.totals).debt);
+  if (amount > currentDebt) {
+    throw new Response(`Платёж не может быть больше текущего долга ${formatMoney(currentDebt)} сом.`, { status: 400 });
+  }
+
+  const detailDocuments = Array.isArray(details.documents) ? details.documents.map(asRecord) : [];
+  const organizationHref = asString(detailDocuments[0]?.organizationHref) || getMoySkladEnvValue("ORGANIZATION_HREF");
+  if (!organizationHref) throw new Response("Для входящего платежа нужен MOYSKLAD_ORGANIZATION_HREF.", { status: 500 });
+  const customerHref = `${MOYSKLAD_BASE_URL}/entity/counterparty/${encodeURIComponent(id)}`;
+  const customDescription = asString(input.description).trim().slice(0, 1000);
+  const conversionNote = currency === "USD" ? `${formatMoney(sourceAmount)} USD × ${exchangeRate} = ${formatMoney(amount)} сом` : `${formatMoney(amount)} сом`;
+  const description = [
+    `Оплата задолженности через Ordo CRM: ${conversionNote}.`,
+    customDescription,
+  ].filter(Boolean).join("\n");
+  const payment = await createIncomingPayment(getMoySkladToken(), {
+    amount,
+    organizationHref,
+    agentHref: customerHref,
+    description,
+    errorMessage: "Не удалось создать входящий платеж в МойСклад.",
+  });
+  if (!payment) throw new Response("Не удалось создать входящий платеж.", { status: 500 });
+
+  reconciliationListCache.clear();
+  reconciliationDetailsCache.clear();
+  return {
+    payment: {
+      id: payment.id,
+      name: payment.name,
+      amount,
+      sourceAmount,
+      currency,
+      exchangeRate,
+      description,
+      webUrl: `https://online.moysklad.ru/app/#paymentin/edit?id=${encodeURIComponent(payment.id)}`,
+    },
+    remainingDebt: roundMoney(Math.max(0, currentDebt - amount)),
+  };
 }
 
 function mapPriceType(value: unknown) {
@@ -3541,7 +4281,12 @@ type AccountingCurrency = {
   name: string;
 };
 
+let accountingCurrenciesCache: { createdAt: number; value: Map<string, AccountingCurrency> } | null = null;
+
 async function getMoySkladAccountingCurrencies() {
+  if (accountingCurrenciesCache && Date.now() - accountingCurrenciesCache.createdAt < SALES_REPORT_CACHE_TTL_MS) {
+    return accountingCurrenciesCache.value;
+  }
   const rows = await moyskladRows("/entity/currency", { limit: "100" });
   const currenciesByHref = new Map<string, AccountingCurrency>();
 
@@ -3556,6 +4301,7 @@ async function getMoySkladAccountingCurrencies() {
     });
   }
 
+  accountingCurrenciesCache = { createdAt: Date.now(), value: currenciesByHref };
   return currenciesByHref;
 }
 
@@ -3800,7 +4546,13 @@ async function getMoySkladEmployeesForPayroll() {
   const entityId = String(process.env.MOYSKLAD_EMPLOYEE_CUSTOM_ENTITY_ID || "").trim();
   if (!entityId) return [];
   const rows = await moyskladRows(`/entity/customentity/${entityId}`, { limit: "100" });
-  return rows.map((value) => {
+  return rows.filter((value) => {
+    const row = asRecord(value);
+    return !isDeletedMoySkladEmployee({
+      archived: row.archived === true,
+      comment: asString(row.description),
+    });
+  }).map((value) => {
     const row = asRecord(value);
     return {
       id: asString(row.id) || getIdFromHref(asString(asRecord(row.meta).href)),
@@ -4194,24 +4946,53 @@ async function applyLoyaltySafely(calculation: JsonRecord, input: JsonRecord, do
 }
 
 function validateTelegramReceiptInput(receiptPhoto: JsonRecord) {
-  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_RECEIPT_CHAT_ID) throw new Response("Заполните TELEGRAM_BOT_TOKEN и TELEGRAM_RECEIPT_CHAT_ID.", { status: 500 });
   const data = asString(receiptPhoto.data);
   const mimeType = asString(receiptPhoto.mimeType);
   if (!data || !/^image\/(jpeg|png|webp)$/i.test(mimeType)) throw new Response("Добавьте корректную фотографию чека.", { status: 400 });
   if (data.length > 7 * 1024 * 1024) throw new Response("Обработанное фото чека слишком большое.", { status: 413 });
 }
 
+function getTelegramReceiptConfig() {
+  const token = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const chatId = String(process.env.TELEGRAM_RECEIPT_CHAT_ID || "").trim();
+  if (!token || !chatId) throw new Response("Заполните TELEGRAM_BOT_TOKEN и TELEGRAM_RECEIPT_CHAT_ID.", { status: 500 });
+  return { token, chatId };
+}
+
+function getTelegramReceiptPhotos(input: JsonRecord) {
+  const multiple = Array.isArray(input.receiptPhotos) ? input.receiptPhotos.map(asRecord) : [];
+  const single = input.receiptPhoto && typeof input.receiptPhoto === "object" ? [asRecord(input.receiptPhoto)] : [];
+  const photos = multiple.length ? multiple : single;
+  if (photos.length > 10) throw new Response("В Telegram можно отправить максимум 10 фотографий чеков.", { status: 400 });
+  return photos;
+}
+
+function getTelegramPaymentLines(calculation: JsonRecord, input: JsonRecord) {
+  const descriptionLines = buildDocumentDescription(calculation)
+    .split("\n")
+    .map((line) => line.trim().replace(/^Тип оплаты:\s*/i, "").replace(/\.$/, ""))
+    .filter(Boolean);
+  if (descriptionLines.length) return descriptionLines;
+  return [asString(calculation.paymentLabel ?? input.paymentTypeName, "-")];
+}
+
 function buildTelegramReceiptCaption(calculation: JsonRecord, input: JsonRecord, document: JsonRecord) {
+  const isDebt = isDebtSaleInput(input);
   const items = Array.isArray(calculation.items) ? calculation.items.map(asRecord) : [];
   const products = items.map((item) => `• ${asString(item.productName ?? item.name, "Товар")} x ${asNumber(item.quantity, 1)}${item.isGift ? " — ПОДАРОК" : ""}`).join("\n");
+  const paymentLines = getTelegramPaymentLines(calculation, input);
+  const paymentBlock = paymentLines.length === 1
+    ? [`Оплата: ${paymentLines[0]}`]
+    : ["Оплата:", ...paymentLines.map((line) => `• ${line}`)];
   return [
-    `Чек: ${asString(document.type) === "retaildemand" ? "Продажа" : "Отгрузка"} №${asString(document.name)}`,
+    `${isDebt ? "ДОЛГ" : "Чек"}: ${asString(document.type) === "retaildemand" ? "Продажа" : "Отгрузка"} №${asString(document.name)}`,
+    ...(isDebt ? ["Статус: ДОЛГ"] : []),
     `Сумма: ${asNumber(calculation.finalTotal)} сом`,
     `Филиал: ${asString(input.branchName ?? input.retailStoreName, "-")}`,
     `Сотрудник: ${asString(input.employeeName, "-")}`,
     `Клиент: ${asString(input.customerName, "Розничный покупатель")}`,
     `Телефон: ${asString(input.customerPhone, "-")}`,
-    `Оплата: ${asString(calculation.paymentLabel ?? input.paymentTypeName, "-")}`,
+    ...paymentBlock,
     "",
     products,
   ].join("\n").slice(0, 1024);
@@ -4229,18 +5010,147 @@ async function sendTelegramPhoto(token: string, chatId: string, buffer: Buffer, 
   return { response, payload: asRecord(payload) };
 }
 
-async function sendTelegramReceiptSafely(receiptPhoto: JsonRecord, calculation: JsonRecord, input: JsonRecord, document: JsonRecord) {
-  try {
-    validateTelegramReceiptInput(receiptPhoto);
-    const token = String(process.env.TELEGRAM_BOT_TOKEN || "");
-    const chatId = String(process.env.TELEGRAM_RECEIPT_CHAT_ID || "");
+async function sendTelegramPhotoGroup(token: string, chatId: string, receiptPhotos: JsonRecord[], caption: string) {
+  const form = new FormData();
+  form.set("chat_id", chatId);
+  const media = receiptPhotos.map((receiptPhoto, index) => {
+    const attachmentName = `receipt_${index}`;
     const buffer = Buffer.from(asString(receiptPhoto.data), "base64");
+    const arrayBuffer = new ArrayBuffer(buffer.byteLength);
+    new Uint8Array(arrayBuffer).set(buffer);
+    form.set(
+      attachmentName,
+      new Blob([arrayBuffer], { type: asString(receiptPhoto.mimeType, "image/jpeg") }),
+      asString(receiptPhoto.name, `receipt-${index + 1}.jpg`),
+    );
+    return {
+      type: "photo",
+      media: `attach://${attachmentName}`,
+      ...(index === 0 ? { caption } : {}),
+    };
+  });
+  form.set("media", JSON.stringify(media));
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, { method: "POST", body: form });
+  const payload = await response.json().catch(() => null) as unknown;
+  return { response, payload: asRecord(payload) };
+}
+
+async function sendTelegramReceiptCardWithoutPhoto(
+  token: string,
+  chatId: string,
+  caption: string,
+  calculation: JsonRecord,
+  input: JsonRecord,
+  document: JsonRecord,
+) {
+  const isDebt = isDebtSaleInput(input);
+  const card = await renderTelegramSaleCard({
+    ...(isDebt ? { headerTitle: "Продажа оформлена в долг", statusBanner: "ДОЛГ", statusTone: "warning" as const } : {}),
+    documentLabel: asString(document.type) === "retaildemand" ? "Продажа" : "Отгрузка",
+    documentName: asString(document.name, "-"),
+    amount: asNumber(calculation.finalTotal),
+    customerName: asString(input.customerName, "Розничный покупатель"),
+    paymentLabel: asString(calculation.paymentLabel ?? input.paymentTypeName, isDebt ? "Долг" : "Наличными"),
+    employeeName: asString(input.employeeName, "-"),
+    branchName: asString(input.branchName ?? input.retailStoreName, "-"),
+    footerLabel: isDebt ? "Продажа в долг без фото чека" : "Наличная продажа без фото чека",
+  });
+  const photoResult = await sendTelegramPhoto(token, chatId, card, {
+    name: `${isDebt ? "debt" : "cash"}-sale-${asString(document.name, "document")}.png`,
+    mimeType: "image/png",
+  }, caption);
+  return { ...photoResult, deliveryMode: "sale_card" };
+}
+
+async function sendTelegramReceiptSafely(calculation: JsonRecord, input: JsonRecord, document: JsonRecord) {
+  try {
+    const receiptPhotos = getTelegramReceiptPhotos(input);
+    const scenario = asString(input.paymentScenario);
+    if (!receiptPhotos.length && scenario !== "cash" && !isDebtSaleInput(input)) return null;
+    const { token, chatId } = getTelegramReceiptConfig();
+    receiptPhotos.forEach(validateTelegramReceiptInput);
     const caption = buildTelegramReceiptCaption(calculation, input, document);
-    const { response, payload } = await sendTelegramPhoto(token, chatId, buffer, receiptPhoto, caption);
+    const delivery = receiptPhotos.length === 0
+      ? await sendTelegramReceiptCardWithoutPhoto(token, chatId, caption, calculation, input, document)
+      : receiptPhotos.length === 1
+        ? await sendTelegramPhoto(token, chatId, Buffer.from(asString(receiptPhotos[0].data), "base64"), receiptPhotos[0], caption)
+        : await sendTelegramPhotoGroup(token, chatId, receiptPhotos, caption);
+    const { response, payload } = delivery;
     if (!response.ok || payload.ok !== true) throw new Error(asString(payload.description, `Telegram вернул ${response.status}`));
+    const result = Array.isArray(payload.result) ? payload.result.map(asRecord) : [asRecord(payload.result)];
+    const messageIds = result.map((item) => item.message_id).filter(Boolean);
+    return {
+      sent: true,
+      messageId: messageIds[0] || null,
+      messageIds,
+      photos: receiptPhotos.length,
+      deliveryMode: "deliveryMode" in delivery ? delivery.deliveryMode : receiptPhotos.length > 1 ? "media_group" : "photo",
+    };
+  } catch (caught) {
+    const message = caught instanceof Response
+      ? await caught.text()
+      : caught instanceof Error
+        ? caught.message
+        : "Не удалось отправить продажу в Telegram.";
+    console.error("Telegram receipt delivery failed:", message);
+    return { sent: false, error: message };
+  }
+}
+
+async function sendTelegramReturnSafely(
+  original: JsonRecord,
+  created: JsonRecord,
+  sourceDocumentType: string,
+  position: JsonRecord,
+  quantity: number,
+) {
+  try {
+    const { token, chatId } = getTelegramReceiptConfig();
+    const assortment = asRecord(position.assortment);
+    const customer = asRecord(original.agent);
+    const productName = asString(assortment.name ?? position.name, "Товар");
+    const amount = roundMoney(fromMoySkladPrice(position.price) * quantity);
+    const employeeName = getReportTextAttribute(original, "EMPLOYEE", sourceDocumentType) || "-";
+    const branchName = asString(asRecord(original.retailStore).name || asRecord(original.store).name, "-");
+    const returnName = asString(created.name, "-");
+    const card = await renderTelegramSaleCard({
+      headerTitle: "Возврат выполнен",
+      statusBanner: "ВОЗВРАТ",
+      documentLabel: "Возврат",
+      documentName: returnName,
+      amount,
+      customerName: asString(customer.name, "Розничный покупатель"),
+      paymentLabel: productName,
+      detailLabel: "ТОВАР",
+      employeeName,
+      branchName,
+      footerLabel: `Возвращено: ${quantity} шт.`,
+    });
+    const caption = [
+      `Возврат выполнен №${returnName}`,
+      `Исходный документ: ${asString(original.name, "-")}`,
+      `Сумма возврата: ${amount} сом`,
+      `Клиент: ${asString(customer.name, "Розничный покупатель")}`,
+      `Сотрудник: ${employeeName}`,
+      `Филиал: ${branchName}`,
+      `Товар: ${productName} x ${quantity}`,
+    ].join("\n").slice(0, 1024);
+    const { response, payload } = await sendTelegramPhoto(token, chatId, card, {
+      name: `return-${returnName}.png`,
+      mimeType: "image/png",
+    }, caption);
+    if (!response.ok || payload.ok !== true) {
+      throw new Error(asString(payload.description, `Telegram вернул ${response.status}`));
+    }
     return { sent: true, messageId: asRecord(payload.result).message_id || null };
   } catch (caught) {
-    return { sent: false, error: caught instanceof Error ? caught.message : "Не удалось отправить фото в Telegram." };
+    const message = caught instanceof Response
+      ? await caught.text()
+      : caught instanceof Error
+        ? caught.message
+        : "Не удалось отправить возврат в Telegram.";
+    console.error("Telegram return delivery failed:", message);
+    return { sent: false, error: message };
   }
 }
 
@@ -4592,35 +5502,7 @@ async function handleDeliveries(request: NextRequest, parts: string[], data: App
   }
   if (!id && request.method === "POST") {
     const payload = await body(request);
-    if (isSupabaseCrmEnabled()) {
-      const rows = await supabaseFetch("/rest/v1/business_deliveries?select=id,document_id,document_type,document_name,document_url,branch_name,customer_name,customer_phone,delivery_address,scheduled_at,employee_name,items,status,notes,created_by,created_at,updated_at", {
-        method: "POST",
-        headers: { Prefer: "return=representation" },
-        body: JSON.stringify(deliveryPayload(payload, user)),
-      }).catch(() => null) as JsonRecord[] | null;
-      if (rows?.[0]) return json({ delivery: normalizeDeliveryRow(rows[0]) }, 201);
-    }
-    const delivery: Delivery = {
-      id: randomUUID(),
-      documentId: asString(payload.documentId),
-      documentType: asString(payload.documentType),
-      documentName: asString(payload.documentName),
-      documentUrl: asString(payload.documentUrl),
-      scheduledAt: normalizeApiMoment(payload.scheduledAt),
-      createdAt: new Date().toISOString(),
-      customerName: asString(payload.customerName),
-      customerPhone: asString(payload.customerPhone),
-      deliveryAddress: asString(payload.address ?? payload.deliveryAddress),
-      branchName: asString(payload.branchName),
-      employeeName: asString(payload.employeeName),
-      items: Array.isArray(payload.items) ? payload.items.map((item) => ({ name: asString(asRecord(item).name), quantity: asNumber(asRecord(item).quantity, 1) })) : [],
-      status: asString(payload.status, "new"),
-      amount: asNumber(payload.amount),
-      notes: asString(payload.comment ?? payload.notes),
-    };
-    data.deliveries.unshift(delivery);
-    await writeData(data);
-    return json({ delivery }, 201);
+    return json({ delivery: await createDeliveryRecord(payload, user, data) }, 201);
   }
   const index = data.deliveries.findIndex((item) => item.id === id);
   if (request.method === "PATCH" || request.method === "PUT") {
@@ -4811,12 +5693,15 @@ function buildCommercialInvoice(payload: JsonRecord) {
   <meta charset="utf-8">
   <title>Счет на оплату</title>
   <style>
-    body { font-family: Arial, sans-serif; color: #111; margin: 28px; font-size: 14px; }
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; color: #111; margin: 0; font-size: 12px; }
     .title { text-align: center; font-size: 22px; font-weight: 700; margin-bottom: 20px; }
     .block { margin-bottom: 12px; line-height: 1.45; }
     .label { font-weight: 700; }
     table { width: 100%; border-collapse: collapse; margin-top: 18px; }
     th, td { border: 1px solid #222; padding: 8px 10px; vertical-align: top; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
     th { text-align: center; font-weight: 700; }
     .center { text-align: center; }
     .right { text-align: right; }
@@ -4826,6 +5711,7 @@ function buildCommercialInvoice(payload: JsonRecord) {
     .signature { margin-top: 34px; }
     .signature-line { display: inline-block; min-width: 220px; border-bottom: 1px solid #222; height: 18px; vertical-align: middle; }
     .muted { color: #555; font-size: 12px; }
+    @media print { body { margin: 0; } }
   </style>
 </head>
 <body>
@@ -5091,49 +5977,50 @@ function buildCommercialProposalHtml(payload: JsonRecord, products: Array<{
   <meta charset="utf-8">
   <title>Коммерческое предложение</title>
   <style>
+    @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; color: #111827; margin: 26px; font-size: 14px; background: #f6f8fc; }
-    .hero { display: grid; gap: 14px; padding: 28px; border: 1px solid #dbe5f1; border-radius: 28px; background: linear-gradient(135deg, #15182b 0%, #3038a4 78%, #6586ff 100%); color: #fff; box-shadow: 0 28px 60px rgba(21, 24, 43, 0.18); }
-    .eyebrow { color: rgba(255,255,255,0.78); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; }
-    h1 { margin: 0; font-size: 38px; line-height: 1.02; }
-    .hero-copy { max-width: 720px; color: rgba(255,255,255,0.86); font-size: 15px; line-height: 1.6; }
-    .hero-grid { display: grid; grid-template-columns: 1.25fr 0.95fr; gap: 18px; }
-    .card { border: 1px solid rgba(255,255,255,0.14); border-radius: 20px; background: rgba(255,255,255,0.08); backdrop-filter: blur(6px); padding: 18px; }
+    body { font-family: Arial, sans-serif; color: #000; margin: 0; font-size: 11px; line-height: 1.35; background: #fff; }
+    .hero { display: grid; gap: 8px; padding: 0 0 10px; border: 0; border-bottom: 2px solid #000; background: #fff; color: #000; }
+    .eyebrow { display: none; }
+    h1 { margin: 0; text-align: center; font-size: 22px; text-transform: uppercase; }
+    .hero-copy { text-align: center; color: #000; font-size: 12px; }
+    .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .card { border: 1px solid #000; padding: 7px; background: #fff; }
     .card p, .card strong, .card span, .card small, .meta span { margin: 0; }
-    .card strong { display: block; margin-bottom: 8px; font-size: 18px; }
-    .muted { color: #6b7280; }
-    .card .muted { color: rgba(255,255,255,0.8); }
-    .summary-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-    .summary-pill { border-radius: 18px; background: #fff; color: #0f172a; padding: 16px 18px; }
-    .summary-pill span { display: block; color: #64748b; font-size: 12px; font-weight: 800; text-transform: uppercase; }
-    .summary-pill strong { display: block; margin-top: 6px; font-size: 28px; }
-    .summary-pill small { display: block; margin-top: 6px; color: #64748b; }
-    .product { margin-top: 20px; border: 1px solid #dbe5f1; border-radius: 26px; overflow: hidden; background: #fff; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05); }
-    .product-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; padding: 22px 24px; background: linear-gradient(180deg, #fbfcff, #f3f7ff); border-bottom: 1px solid #dbe5f1; }
+    .card strong { display: block; margin-bottom: 4px; font-size: 12px; }
+    .muted, .card .muted { color: #000; }
+    .summary-strip { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #000; }
+    .summary-pill { padding: 6px 8px; border-right: 1px solid #000; background: #fff; color: #000; }
+    .summary-pill:last-child { border-right: 0; }
+    .summary-pill span { display: block; color: #000; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+    .summary-pill strong { display: block; margin-top: 2px; font-size: 15px; }
+    .summary-pill small { color: #000; }
+    .product { margin-top: 10px; border: 1px solid #000; overflow: hidden; background: #fff; break-inside: avoid; page-break-inside: avoid; }
+    .product-head { display: flex; justify-content: space-between; gap: 10px; padding: 7px; background: #fff; border-bottom: 1px solid #000; }
     .product-title { min-width: 0; }
-    .product-index { color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
-    .product-head h2 { margin: 8px 0 0; font-size: 30px; line-height: 1.08; }
-    .meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; color: #475569; }
-    .meta span { padding: 7px 10px; border-radius: 999px; background: #eef4ff; }
-    .price-box { min-width: 220px; border-radius: 20px; background: linear-gradient(135deg, #15182b 0%, #3038a4 100%); color: #fff; padding: 16px 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
-    .price-box strong { display: block; margin-top: 8px; font-size: 28px; line-height: 1; }
-    .price-box small { display: block; margin-top: 6px; color: rgba(255,255,255,0.82); }
-    .product-body { display: grid; grid-template-columns: 320px 1fr; gap: 22px; padding: 24px; }
-    .media { border: 1px solid #dbe5f1; border-radius: 22px; background: linear-gradient(180deg, #ffffff, #f8fbff); min-height: 300px; display: grid; place-items: center; overflow: hidden; }
+    .product-index { color: #000; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+    .product-head h2 { margin: 3px 0 0; font-size: 15px; line-height: 1.2; }
+    .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; color: #000; }
+    .meta span { padding: 0; background: #fff; }
+    .price-box { min-width: 42mm; border-left: 1px solid #000; background: #fff; color: #000; padding: 3px 7px; }
+    .price-box strong { display: block; margin-top: 3px; font-size: 15px; }
+    .price-box small { display: block; margin-top: 2px; color: #000; }
+    .product-body { display: grid; grid-template-columns: 48mm 1fr; gap: 8px; padding: 7px; }
+    .media { border: 1px solid #777; width: 48mm; height: 48mm; display: grid; place-items: center; overflow: hidden; background: #fff; }
     .media img { width: 100%; height: 100%; object-fit: contain; }
-    .image-empty { color: #9ca3af; font-weight: 700; }
-    .content { display: grid; gap: 16px; }
-    .content-block { border: 1px solid #e5edf7; border-radius: 20px; padding: 18px; background: #fff; }
-    .block-title { color: #2563eb; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
-    .content-block p { margin: 0; line-height: 1.65; white-space: pre-wrap; color: #334155; }
-    .spec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .spec-card { border-radius: 16px; background: #f8fbff; border: 1px solid #e5edf7; padding: 12px 14px; }
-    .spec-card span { display: block; color: #64748b; font-size: 12px; font-weight: 800; text-transform: uppercase; }
-    .spec-card strong { display: block; margin-top: 6px; color: #0f172a; font-size: 15px; line-height: 1.45; }
-    .benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .benefit { border-radius: 16px; background: #eef4ff; color: #1e3a8a; padding: 12px 14px; font-weight: 700; line-height: 1.45; }
-    .footer-note { margin-top: 18px; color: #64748b; font-size: 12px; line-height: 1.6; }
-    @media print { body { margin: 18px; } }
+    .image-empty { color: #555; }
+    .content { display: grid; gap: 6px; }
+    .content-block { border: 0; padding: 0; background: #fff; }
+    .block-title { color: #000; font-size: 9px; font-weight: 700; text-transform: uppercase; margin-bottom: 2px; }
+    .content-block p { margin: 0; line-height: 1.35; white-space: pre-wrap; color: #000; }
+    .spec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; }
+    .spec-card { border: 0; border-bottom: 1px dotted #777; padding: 2px 0; background: #fff; }
+    .spec-card span { color: #000; font-size: 9px; }
+    .spec-card strong { display: block; color: #000; font-size: 10px; }
+    .benefits { display: grid; grid-template-columns: 1fr; gap: 2px; }
+    .benefit { padding: 0; background: #fff; color: #000; font-weight: 700; }
+    .footer-note { margin-top: 10px; color: #000; font-size: 9px; border-top: 1px solid #000; padding-top: 5px; }
+    @media print { body { margin: 0; } }
   </style>
 </head>
 <body>
@@ -5324,8 +6211,15 @@ async function createCommercialProposalLink(payload: JsonRecord) {
   };
 }
 
-async function renderHtmlToPdf(html: string) {
-  const chromePath = process.env.CHROME_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+async function renderHtmlToPrintableFile(html: string, baseName: string) {
+  const chromePath = asString(process.env.CHROME_BIN).trim();
+  if (!chromePath) {
+    return {
+      content: Buffer.from(html, "utf8"),
+      contentType: "text/html; charset=utf-8",
+      fileName: `${baseName}.html`,
+    };
+  }
   const workdir = await mkdtemp(path.join(tmpdir(), "ordo-commercial-invoice-"));
   const htmlPath = path.join(workdir, "invoice.html");
   const pdfPath = path.join(workdir, "invoice.pdf");
@@ -5344,10 +6238,18 @@ async function renderHtmlToPdf(html: string) {
       ],
       { timeout: 30000 },
     );
-    return await readFile(pdfPath);
+    return {
+      content: await readFile(pdfPath),
+      contentType: "application/pdf",
+      fileName: `${baseName}.pdf`,
+    };
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Не удалось сформировать PDF-счет.";
-    throw new Response(`Не удалось сформировать PDF-счет. ${message}`, { status: 500 });
+    console.error("Commercial document PDF renderer is unavailable, using printable HTML.", caught);
+    return {
+      content: Buffer.from(html, "utf8"),
+      contentType: "text/html; charset=utf-8",
+      fileName: `${baseName}.html`,
+    };
   } finally {
     await rm(workdir, { recursive: true, force: true }).catch(() => {});
   }
@@ -5459,8 +6361,29 @@ async function handleCrm(request: NextRequest, parts: string[], data: AppData) {
     if (id === "sync-moysklad" && request.method === "POST") {
       return json(await syncMoySkladEmployeesToSupabaseCrm());
     }
+    if (id === "archived-moysklad" && request.method === "GET") {
+      return json({ employees: await getArchivedCrmEmployees() });
+    }
+    if (id === "archived-moysklad" && request.method === "POST") {
+      const payload = await body(request);
+      return json(await restoreArchivedCrmEmployee(asString(payload.employeeHref), data));
+    }
     if (!id && request.method === "POST") {
       return json({ user: await createManagedCrmUser(await body(request), actor) }, 201);
+    }
+    if (parts[3] === "deletion-impact" && request.method === "GET") {
+      const { source } = await getEmployeeReassignmentUsers(id, null, data, actor);
+      return json(await getEmployeeDeletionImpact(asString(source.moySkladEmployeeHref)));
+    }
+    if (parts[3] === "reassign-and-delete" && request.method === "POST") {
+      const payload = await body(request);
+      return json(await reassignEmployeeSalesAndDelete(
+        id,
+        asString(payload.targetUserId),
+        asNumber(payload.batchSize, 5),
+        data,
+        actor,
+      ));
     }
     if (request.method === "PUT") {
       const payload = await body(request);
@@ -5889,24 +6812,59 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     if (root === "customers") return json({ customers: await getCustomers(url.searchParams.get("search") || "") });
     if (root === "calculate" && request.method === "POST") return json(calculateDraft(await body(request)));
     if (root === "orders" && request.method === "POST") {
-      requireUser(request, data);
-      const payload = await body(request);
+      const user = requireUser(request, data);
+      const payload = await enforceSaleEmployee(await body(request), user);
       const calculation = calculateDraft(payload);
       const document = await createMoySkladDocument(calculation, payload);
       const loyalty = await applyLoyaltySafely(calculation, payload, document);
       const fiscalization = document.type === "retaildemand"
         ? await triggerRetailFiscalizationSafely(document)
         : { attempted: false, skipped: true, reason: "Документ не является розничной продажей." };
-      const telegramReceipt = payload.receiptPhoto ? await sendTelegramReceiptSafely(asRecord(payload.receiptPhoto), calculation, payload, document) : null;
+      const telegramReceipt = await sendTelegramReceiptSafely(calculation, payload, document);
       const order = orderFromDraft({ ...payload, documentType: document.type }, data);
       order.id = asString(document.id, order.id);
       order.name = asString(document.name, order.name);
       order.type = document.type === "demand" ? "demand" : "retaildemand";
       data.orders.unshift(order);
       await writeData(data);
-      return json({ ok: true, order, document, calculation, loyalty, fiscalization, telegramReceipt }, 201);
+      const deliveryInput = asRecord(payload.delivery);
+      let delivery: Delivery | { error: string } | null = null;
+      if (deliveryInput.enabled === true) {
+        try {
+          delivery = await createDeliveryRecord({
+            documentId: document.id,
+            documentType: document.type,
+            documentName: document.name,
+            documentUrl: document.webUrl,
+            branchName: payload.branchName ?? payload.retailStoreName,
+            customerName: payload.customerName,
+            customerPhone: payload.customerPhone,
+            customerPhoneSecondary: deliveryInput.customerPhoneSecondary,
+            address: deliveryInput.address,
+            scheduledAt: deliveryInput.scheduledAt,
+            employeeName: payload.employeeName,
+            items: deliveryInput.items,
+            notes: deliveryInput.notes,
+            amount: calculation.finalTotal,
+          }, user, data);
+        } catch (caught) {
+          delivery = {
+            error: caught instanceof Response
+              ? await caught.text()
+              : caught instanceof Error
+                ? caught.message
+                : "Не удалось создать задачу доставки.",
+          };
+        }
+      }
+      return json({ ok: true, order, document, calculation, loyalty, fiscalization, telegramReceipt, delivery }, 201);
     }
-    if (root === "reports" && parts[1] === "sales") {
+    if (root === "reports" && parts[1] === "sales" && parts[2] === "price" && request.method === "PATCH") {
+      const user = requireUser(request, data);
+      if (!canEditReportSales(user)) throw new Response("Нет права «Возможность менять цены документа».", { status: 403 });
+      return json(await updateReportSalePositionPrice(await body(request)));
+    }
+    if (root === "reports" && parts[1] === "sales" && request.method === "GET") {
       const user = requireUser(request, data);
       return json(await getMoySkladSalesReport(url, user));
     }
@@ -5936,11 +6894,22 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     if (root === "loyalty") return handleLoyalty(request, parts);
     if (root === "reconciliation" && parts[1] === "debtors") {
       requireUser(request, data);
+      if (parts[2] && parts[3] === "payments" && request.method === "POST") {
+        return json(await createReconciliationIncomingPayment(parts[2], await body(request), url), 201);
+      }
       const report = await getMoySkladReconciliation(url);
       if (parts[2]) {
         return json(await getReconciliationDebtorDetails(parts[2], url));
       }
-      return json({ debtors: report.debtors, totals: report.totals, loadedAt: report.loadedAt, truncated: report.truncated, partial: report.partial, page: report.page });
+      return json({
+        debtors: report.debtors,
+        totals: report.totals,
+        usdRate: report.usdRate,
+        loadedAt: report.loadedAt,
+        truncated: report.truncated,
+        partial: report.partial,
+        page: report.page,
+      });
     }
     if (root === "payroll" && parts[1] === "employees" && parts[2] === "config" && request.method === "POST") return json(await savePayrollConfigs(await body(request)));
     if (root === "payroll" && parts[1] === "employees" && request.method === "GET") return json(await getPayrollEmployeesReport(url, data));
@@ -6034,17 +7003,16 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     }
     if (root === "commercial-documents" && parts[1] === "pdf" && request.method === "POST") {
       const payload = await body(request);
-      const customerGroups = Array.isArray(payload.customerGroups) ? payload.customerGroups.map(String).filter(Boolean) : [];
-      if (payload.customerMode === "new" && !customerGroups.includes("организации")) {
-        payload.customerGroups = [...customerGroups, "организации"];
+      if (payload.customerMode === "new") {
+        payload.customerGroups = ["организации"];
       }
       const document = await createCommercialMoySkladDocument(payload);
-      const content = await renderHtmlToPdf(buildCommercialInvoice(payload));
-      return new NextResponse(content, {
+      const printable = await renderHtmlToPrintableFile(buildCommercialInvoice(payload), "schet-na-oplatu");
+      return new NextResponse(printable.content, {
         status: 200,
         headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent("schet-na-oplatu.pdf")}`,
+          "Content-Type": printable.contentType,
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(printable.fileName)}`,
           "Cache-Control": "no-store",
           "X-Commercial-Document-Type": asString(document.type),
           "X-Commercial-Document-Name": encodeURIComponent(asString(document.name)),
@@ -6057,12 +7025,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     if (root === "commercial-documents" && parts[1] === "proposal.pdf" && request.method === "POST") {
       const payload = await body(request);
       const products = await getCommercialProposalProducts(payload);
-      const content = await renderHtmlToPdf(buildCommercialProposalHtml(payload, products));
-      return new NextResponse(content, {
+      const printable = await renderHtmlToPrintableFile(buildCommercialProposalHtml(payload, products), "commercial-proposal");
+      return new NextResponse(printable.content, {
         status: 200,
         headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent("commercial-proposal.pdf")}`,
+          "Content-Type": printable.contentType,
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(printable.fileName)}`,
           "Cache-Control": "no-store",
         },
       });

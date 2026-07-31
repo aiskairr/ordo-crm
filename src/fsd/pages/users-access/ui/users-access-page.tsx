@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CloudDownload, Eye, EyeOff, KeyRound, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
+import { ArchiveRestore, CloudDownload, Eye, EyeOff, KeyRound, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { CrmRole, CrmUser, CrmUserUpdate } from "@/src/fsd/entities/user";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
@@ -10,7 +10,13 @@ import { AuthRequired, StatusPanel } from "@/src/fsd/shared/ui/status";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getShellSession } from "@/src/fsd/widgets/app-shell/api/app-shell-api";
 import { AppShell } from "@/src/fsd/widgets/app-shell";
-import { deleteCrmUser, getCrmUsers, syncCrmUsersFromMoySklad, updateCrmUser } from "../api/users-access-api";
+import {
+  getCrmUserDeletionImpact,
+  getCrmUsers,
+  reassignAndDeleteCrmUser,
+  syncCrmUsersFromMoySklad,
+  updateCrmUser,
+} from "../api/users-access-api";
 import {
   arePermissionsLocked,
   BRANCHES,
@@ -23,6 +29,7 @@ import {
   generatePassword,
   getNextPermissionsForRole,
   initials,
+  isDocumentPriceEditAllowed,
   isReportProfitAllowed,
   normalizeLogin,
   normalizePermissions,
@@ -31,6 +38,8 @@ import {
   type UsersAccessDraft,
 } from "../model/users-access-model";
 import { CreateUserPanel } from "./create-user-panel";
+import { ArchivedUsersDialog } from "./archived-users-dialog";
+import { DeleteUserDialog } from "./delete-user-dialog";
 import styles from "./users-access-page.module.css";
 
 const roles = Object.keys(ROLE_LABELS) as CrmRole[];
@@ -77,6 +86,7 @@ function UserCard({
   const togglePermission = (permission: string) => {
     if (permissionsLocked) return;
     if (permission === "reportProfit" && !reportProfitEditable) return;
+    if (permission === "editDocumentPrices" && !isDocumentPriceEditAllowed(draft.role)) return;
     const next = draft.permissions.includes(permission)
       ? draft.permissions.filter((item) => item !== permission)
       : [...draft.permissions, permission];
@@ -205,7 +215,8 @@ function UserCard({
                 || saving
                 || deleting
                 || permissionsLocked
-                || (permission === "reportProfit" && (!isReportProfitAllowed(draft.role) || !reportProfitEditable));
+                || (permission === "reportProfit" && (!isReportProfitAllowed(draft.role) || !reportProfitEditable))
+                || (permission === "editDocumentPrices" && !isDocumentPriceEditAllowed(draft.role));
               return (
                 <label key={permission} className={`${styles.permissionItem} ${disabled ? styles.disabled : ""}`}>
                   <input
@@ -289,6 +300,11 @@ export function UsersAccessPage() {
   const [savingIds, setSavingIds] = useState<string[]>([]);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
   const [newUserIds, setNewUserIds] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<UsersAccessDraft | null>(null);
+  const [reassignmentTargetId, setReassignmentTargetId] = useState("");
+  const [deletionProgress, setDeletionProgress] = useState("");
+  const [deletionError, setDeletionError] = useState("");
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const sessionQuery = useQuery({ queryKey: ["crm-session"], queryFn: getShellSession });
   const usersQuery = useQuery({ queryKey: ["crm-users"], queryFn: getCrmUsers });
@@ -297,6 +313,19 @@ export function UsersAccessPage() {
   const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
   const filteredUsers = useMemo(() => filterUsers(users, search, roleFilter), [users, search, roleFilter]);
+  const reassignmentTargets = useMemo(() => users.filter((user) =>
+    user.id !== deleteTarget?.id
+    && user.active
+    && (user.role === "admin" || user.role === "owner")
+    && Boolean(user.moySkladEmployeeHref)
+  ), [deleteTarget?.id, users]);
+
+  const deletionImpactQuery = useQuery({
+    queryKey: ["crm-user-deletion-impact", deleteTarget?.id],
+    queryFn: () => getCrmUserDeletionImpact(deleteTarget?.id || ""),
+    enabled: Boolean(deleteTarget?.id),
+    retry: false,
+  });
 
   const syncMutation = useMutation({
     mutationFn: syncCrmUsersFromMoySklad,
@@ -360,28 +389,49 @@ export function UsersAccessPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (draft: UsersAccessDraft) => {
+    mutationFn: async ({ draft, targetUserId }: { draft: UsersAccessDraft; targetUserId: string }) => {
       setDeletingIds((current) => [...current, draft.id]);
-      return { draft, result: await deleteCrmUser(draft.id) };
+      let totalProcessed = 0;
+      for (let batch = 0; batch < 10_000; batch += 1) {
+        const result = await reassignAndDeleteCrmUser(draft.id, targetUserId);
+        totalProcessed += result.processed;
+        setDeletionProgress(`Перенесено документов: ${totalProcessed}. Осталось: ${result.remaining}.`);
+        if (result.completed) return { draft, result, totalProcessed };
+        if (result.finalizationFailed) {
+          throw new Error(result.moySkladRemoval?.reason || "Документы перенесены, но МойСклад не разрешил окончательное удаление сотрудника.");
+        }
+        if (result.processed <= 0) {
+          throw new Error("Перенос остановлен: МойСклад не вернул документы для обработки.");
+        }
+      }
+      throw new Error("Превышено допустимое количество пакетов переноса.");
     },
-    onSuccess: async ({ draft, result }) => {
+    onSuccess: async ({ draft, result, totalProcessed }) => {
       setDrafts((current) => {
         const next = { ...current };
         delete next[draft.id];
         return next;
       });
+      setDeleteTarget(null);
+      setDeletionProgress("");
+      setDeletionError("");
       showToast({
         tone: "success",
-        title: `Сотрудник «${draft.name}» удален`,
-        description: `МойСклад: ${formatMoySkladRemoval(result.moySkladRemoval)}`,
+        title: `Сотрудник «${draft.name}» удален навсегда`,
+        description: `Перенесено документов: ${totalProcessed}. МойСклад: ${formatMoySkladRemoval(result.moySkladRemoval)}.`,
       });
-      await queryClient.invalidateQueries({ queryKey: ["crm-users"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["crm-users"] }),
+        queryClient.invalidateQueries({ queryKey: ["employees"] }),
+        queryClient.invalidateQueries({ queryKey: ["sales-report"] }),
+      ]);
     },
     onError: (error) => {
+      setDeletionError(getErrorText(error));
       showToast({ tone: "error", title: "Не удалось удалить сотрудника", description: getErrorText(error) });
     },
     onSettled: (_data, _error, payload) => {
-      setDeletingIds((current) => current.filter((id) => id !== payload.id));
+      setDeletingIds((current) => current.filter((id) => id !== payload.draft.id));
     },
   });
 
@@ -409,10 +459,16 @@ export function UsersAccessPage() {
   };
 
   const handleDelete = (draft: UsersAccessDraft) => {
-    if (!window.confirm(`Удалить сотрудника «${draft.name}» из CRM и МойСклад? Если МойСклад не даст удалить из-за продаж, CRM попробует архивировать сотрудника в МойСклад.`)) {
-      return;
-    }
-    deleteMutation.mutate(draft);
+    const firstTarget = users.find((user) =>
+      user.id !== draft.id
+      && user.active
+      && (user.role === "admin" || user.role === "owner")
+      && Boolean(user.moySkladEmployeeHref)
+    );
+    setDeleteTarget(draft);
+    setReassignmentTargetId(firstTarget?.id || "");
+    setDeletionProgress("");
+    setDeletionError("");
   };
 
   return (
@@ -425,6 +481,10 @@ export function UsersAccessPage() {
             <p>Роли, филиалы, разрешенные разделы и пароли входа.</p>
           </div>
           <div className={styles.heroActions}>
+            <button className={styles.secondaryButton} type="button" onClick={() => setArchiveOpen(true)}>
+              <ArchiveRestore size={16} />
+              Архивные сотрудники
+            </button>
             <button
               className={styles.secondaryButton}
               onClick={() => syncMutation.mutate()}
@@ -507,6 +567,31 @@ export function UsersAccessPage() {
           </>
         ) : null}
       </div>
+      {deleteTarget ? (
+        <DeleteUserDialog
+          source={deleteTarget}
+          targets={reassignmentTargets}
+          impact={deletionImpactQuery.data}
+          loadingImpact={deletionImpactQuery.isLoading || deletionImpactQuery.isFetching}
+          running={deleteMutation.isPending}
+          progress={deletionProgress}
+          error={deletionError || (deletionImpactQuery.error ? getErrorText(deletionImpactQuery.error) : "")}
+          selectedTargetId={reassignmentTargetId}
+          onSelectTarget={setReassignmentTargetId}
+          onClose={() => {
+            if (deleteMutation.isPending) return;
+            setDeleteTarget(null);
+            setDeletionProgress("");
+            setDeletionError("");
+          }}
+          onConfirm={() => {
+            if (!reassignmentTargetId || deleteMutation.isPending) return;
+            setDeletionError("");
+            deleteMutation.mutate({ draft: deleteTarget, targetUserId: reassignmentTargetId });
+          }}
+        />
+      ) : null}
+      {archiveOpen ? <ArchivedUsersDialog onClose={() => setArchiveOpen(false)} /> : null}
     </AppShell>
   );
 }

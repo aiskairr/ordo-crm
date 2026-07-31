@@ -23,11 +23,20 @@ export type ReconciliationList = {
   loadedAt: string;
   truncated: boolean;
   partial: boolean;
-  page: { offset: number; limit: number; nextOffset: number; hasMore: boolean };
+  usdRate: number;
+  page: {
+    offset: number;
+    limit: number;
+    nextOffset: number;
+    hasMore: boolean;
+    scannedChunks: number;
+    scannedDocuments: number;
+  };
 };
 
 export type ReconciliationDetails = {
   debtor: Debtor;
+  usdRate: number;
   totals: { debt: number; amount: number; paid: number; documents: number };
   documents: Array<{
     id: string;
@@ -40,7 +49,14 @@ export type ReconciliationDetails = {
     paid: number;
     debt: number;
     originalDebt: number;
+    sourceAmount: number;
+    sourcePaid: number;
+    sourceUnpaid: number;
+    currencyIsoCode: string;
+    currencyName: string;
+    exchangeRate: number;
     organizationName?: string;
+    organizationHref?: string;
     storeName?: string;
     paymentType?: string;
     comment?: string;
@@ -49,7 +65,19 @@ export type ReconciliationDetails = {
     customerAddress?: string;
     appliedPayments: Array<{ id: string; name: string; amount: number; moment: string }>;
   }>;
-  payments: Array<{ id: string; name: string; moment: string; webUrl: string; amount: number; description?: string; organizationName?: string }>;
+  payments: Array<{
+    id: string;
+    name: string;
+    moment: string;
+    webUrl: string;
+    amount: number;
+    sourceAmount: number;
+    currencyIsoCode: string;
+    currencyName: string;
+    exchangeRate: number;
+    description?: string;
+    organizationName?: string;
+  }>;
   act: {
     customerName: string;
     date: string;
@@ -97,11 +125,14 @@ export async function getReconciliationDebtors(params: { search: string; custome
     loadedAt: asString(payload.loadedAt),
     truncated: Boolean(payload.truncated),
     partial: payload.partial === true,
+    usdRate: asNumber(payload.usdRate) || 88,
     page: {
       offset: asNumber(page.offset),
       limit: asNumber(page.limit),
       nextOffset: asNumber(page.nextOffset),
       hasMore: page.hasMore === true,
+      scannedChunks: asNumber(page.scannedChunks),
+      scannedDocuments: asNumber(page.scannedDocuments),
     },
   } satisfies ReconciliationList;
 }
@@ -122,7 +153,14 @@ export async function getReconciliationDetails(id: string): Promise<Reconciliati
       paid: asNumber(row.paid),
       debt: asNumber(row.debt),
       originalDebt: asNumber(row.originalDebt),
+      sourceAmount: asNumber(row.sourceAmount),
+      sourcePaid: asNumber(row.sourcePaid),
+      sourceUnpaid: asNumber(row.sourceUnpaid),
+      currencyIsoCode: asString(row.currencyIsoCode),
+      currencyName: asString(row.currencyName),
+      exchangeRate: asNumber(row.exchangeRate) || 1,
       organizationName: asString(row.organizationName),
+      organizationHref: asString(row.organizationHref),
       storeName: asString(row.storeName),
       paymentType: asString(row.paymentType),
       comment: asString(row.comment),
@@ -142,11 +180,24 @@ export async function getReconciliationDetails(id: string): Promise<Reconciliati
   };
   const mapPayment = (value: unknown) => {
     const row = asRecord(value);
-    return { id: asString(row.id), name: asString(row.name), moment: asString(row.moment), webUrl: asString(row.webUrl), amount: asNumber(row.amount), description: asString(row.description), organizationName: asString(row.organizationName) };
+    return {
+      id: asString(row.id),
+      name: asString(row.name),
+      moment: asString(row.moment),
+      webUrl: asString(row.webUrl),
+      amount: asNumber(row.amount),
+      sourceAmount: asNumber(row.sourceAmount),
+      currencyIsoCode: asString(row.currencyIsoCode),
+      currencyName: asString(row.currencyName),
+      exchangeRate: asNumber(row.exchangeRate) || 1,
+      description: asString(row.description),
+      organizationName: asString(row.organizationName),
+    };
   };
   const act = asRecord(payload.act);
   return {
     debtor: debtor(payload.debtor),
+    usdRate: asNumber(payload.usdRate) || 88,
     totals: { debt: asNumber(totals.debt), amount: asNumber(totals.amount), paid: asNumber(totals.paid), documents: asNumber(totals.documents) },
     documents: asArray(payload.documents, "documents").map(mapDoc),
     payments: asArray(payload.payments, "payments").map(mapPayment),
@@ -169,5 +220,47 @@ export async function getReconciliationDetails(id: string): Promise<Reconciliati
         saldo: asNumber(asRecord(act.totals).saldo),
       },
     },
+  };
+}
+
+export type CreateReconciliationPaymentPayload = {
+  amount: number;
+  currency: "KGS" | "USD";
+  description?: string;
+};
+
+export type CreateReconciliationPaymentResponse = {
+  payment: {
+    id: string;
+    name: string;
+    amount: number;
+    sourceAmount: number;
+    currency: "KGS" | "USD";
+    exchangeRate: number;
+    description: string;
+    webUrl: string;
+  };
+  remainingDebt: number;
+};
+
+export async function createReconciliationPayment(id: string, input: CreateReconciliationPaymentPayload): Promise<CreateReconciliationPaymentResponse> {
+  const payload = asRecord(await apiClient<unknown>(`/api/reconciliation/debtors/${encodeURIComponent(id)}/payments`, {
+    method: "POST",
+    body: input,
+    timeoutMs: 60000,
+  }));
+  const payment = asRecord(payload.payment);
+  return {
+    payment: {
+      id: asString(payment.id),
+      name: asString(payment.name),
+      amount: asNumber(payment.amount),
+      sourceAmount: asNumber(payment.sourceAmount),
+      currency: asString(payment.currency) === "USD" ? "USD" : "KGS",
+      exchangeRate: asNumber(payment.exchangeRate) || 1,
+      description: asString(payment.description),
+      webUrl: asString(payment.webUrl),
+    },
+    remainingDebt: asNumber(payload.remainingDebt),
   };
 }

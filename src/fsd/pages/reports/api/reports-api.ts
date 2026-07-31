@@ -1,4 +1,5 @@
 import { apiClient } from "@/src/fsd/shared/api";
+import type { SalesReceiptData } from "@/src/fsd/features/print-sales-receipt";
 
 export type ReportType = "retaildemand" | "demand" | "retailsalesreturn" | "salesreturn";
 export type CustomerType = "legal" | "entrepreneur" | "individual" | "";
@@ -12,11 +13,16 @@ export type RetailStore = {
 
 export type ReportProduct = {
   index?: number;
+  positionId?: string;
   code: string;
   name: string;
   quantity: number;
   price: number;
   sum: number;
+  sourcePrice?: number;
+  sourceSum?: number;
+  currencyIsoCode?: string;
+  exchangeRate?: number;
   isGift: boolean;
   categoryName?: string;
   categoryPath?: string;
@@ -31,6 +37,11 @@ export type ReportRow = {
   amount: number;
   paid: number;
   unpaid: number;
+  sourceAmount?: number;
+  sourcePaid?: number;
+  sourceUnpaid?: number;
+  currencyIsoCode?: string;
+  exchangeRate?: number;
   commission?: number;
   netProfit: number;
   storeName: string;
@@ -65,6 +76,23 @@ export type SalesReport = {
     netProfit: number;
   };
   canViewProfit: boolean;
+  canEditSales: boolean;
+};
+
+export type UpdateSalePricePayload = {
+  documentId: string;
+  documentType: Extract<ReportType, "retaildemand" | "demand">;
+  productIndex: number;
+  positionId?: string;
+  price: number;
+};
+
+export type UpdateSalePriceResponse = {
+  document: { id: string; name: string; amount: number; netProfit: number; receivable: number; webUrl: string };
+  position: { id: string; previousPrice: number; price: number };
+  profitUpdated: boolean;
+  receivableUpdated: boolean;
+  warning: string;
 };
 
 export type ReturnPayload = {
@@ -80,6 +108,11 @@ export type ReturnResponse = {
     name: string;
     type: "retailsalesreturn" | "salesreturn";
     webUrl: string;
+  };
+  receipt?: SalesReceiptData;
+  telegramReturn?: {
+    sent: boolean;
+    error: string;
   };
 };
 
@@ -136,11 +169,16 @@ function normalizeProduct(value: unknown): ReportProduct {
   const record = asRecord(value);
   return {
     index: asNumber(record.index),
+    positionId: asString(record.positionId ?? record.position_id),
     code: asString(record.code),
     name: asString(record.name),
     quantity: asNumber(record.quantity),
     price: asNumber(record.price),
     sum: asNumber(record.sum),
+    sourcePrice: asNumber(record.sourcePrice ?? record.source_price),
+    sourceSum: asNumber(record.sourceSum ?? record.source_sum),
+    currencyIsoCode: asString(record.currencyIsoCode ?? record.currency_iso_code),
+    exchangeRate: asNumber(record.exchangeRate ?? record.exchange_rate) || 1,
     isGift: record.isGift === true || record.is_gift === true,
     categoryName: asString(record.categoryName ?? record.category_name),
     categoryPath: asString(record.categoryPath ?? record.category_path),
@@ -158,6 +196,11 @@ function normalizeRow(value: unknown): ReportRow {
     amount: asNumber(record.amount),
     paid: asNumber(record.paid),
     unpaid: asNumber(record.unpaid),
+    sourceAmount: asNumber(record.sourceAmount ?? record.source_amount),
+    sourcePaid: asNumber(record.sourcePaid ?? record.source_paid),
+    sourceUnpaid: asNumber(record.sourceUnpaid ?? record.source_unpaid),
+    currencyIsoCode: asString(record.currencyIsoCode ?? record.currency_iso_code),
+    exchangeRate: asNumber(record.exchangeRate ?? record.exchange_rate) || 1,
     commission: asNumber(record.commission ?? record.commission_amount),
     netProfit: asNumber(record.netProfit ?? record.net_profit),
     storeName: asString(record.storeName ?? record.store_name),
@@ -217,12 +260,39 @@ export async function getSalesReport(filters: ReportFilters): Promise<SalesRepor
       netProfit: asNumber(asRecord(payload.totals).netProfit ?? asRecord(payload.totals).net_profit),
     } : undefined,
     canViewProfit: payload.canViewProfit === true,
+    canEditSales: payload.canEditSales === true,
+  };
+}
+
+export async function updateReportSalePrice(payload: UpdateSalePricePayload): Promise<UpdateSalePriceResponse> {
+  const data = asRecord(await apiClient<unknown>("/api/reports/sales/price", { method: "PATCH", body: payload }));
+  const document = asRecord(data.document);
+  const position = asRecord(data.position);
+  return {
+    document: {
+      id: asString(document.id),
+      name: asString(document.name),
+      amount: asNumber(document.amount),
+      netProfit: asNumber(document.netProfit),
+      receivable: asNumber(document.receivable),
+      webUrl: asString(document.webUrl ?? document.web_url),
+    },
+    position: {
+      id: asString(position.id),
+      previousPrice: asNumber(position.previousPrice ?? position.previous_price),
+      price: asNumber(position.price),
+    },
+    profitUpdated: data.profitUpdated === true,
+    receivableUpdated: data.receivableUpdated === true,
+    warning: asString(data.warning),
   };
 }
 
 export async function createReportReturn(payload: ReturnPayload): Promise<ReturnResponse> {
   const data = asRecord(await apiClient<unknown>("/api/reports/returns", { method: "POST", body: payload }));
   const document = asRecord(data.document);
+  const receipt = asRecord(data.receipt);
+  const telegramReturn = asRecord(data.telegramReturn);
   return {
     document: {
       id: asString(document.id),
@@ -230,5 +300,37 @@ export async function createReportReturn(payload: ReturnPayload): Promise<Return
       type: asString(document.type) === "salesreturn" ? "salesreturn" : "retailsalesreturn",
       webUrl: asString(document.webUrl ?? document.web_url),
     },
+    receipt: Object.keys(receipt).length
+      ? {
+          receiptKind: "return",
+          documentNumber: asString(receipt.documentNumber ?? receipt.document_number),
+          sourceDocumentNumber: asString(receipt.sourceDocumentNumber ?? receipt.source_document_number),
+          dateTime: asString(receipt.dateTime ?? receipt.date_time),
+          storeName: asString(receipt.storeName ?? receipt.store_name),
+          employeeName: asString(receipt.employeeName ?? receipt.employee_name),
+          customerName: asString(receipt.customerName ?? receipt.customer_name),
+          items: asArray(receipt.items).map((value) => {
+            const item = asRecord(value);
+            return {
+              name: asString(item.name),
+              price: asNumber(item.price),
+              quantity: asNumber(item.quantity),
+              lineTotal: asNumber(item.lineTotal ?? item.line_total),
+              isGift: item.isGift === true || item.is_gift === true,
+            };
+          }),
+          baseTotal: asNumber(receipt.baseTotal ?? receipt.base_total),
+          finalTotal: asNumber(receipt.finalTotal ?? receipt.final_total),
+          paymentType: asString(receipt.paymentType ?? receipt.payment_type),
+          paidAmount: asNumber(receipt.paidAmount ?? receipt.paid_amount),
+          unpaidAmount: asNumber(receipt.unpaidAmount ?? receipt.unpaid_amount),
+        }
+      : undefined,
+    telegramReturn: data.telegramReturn && typeof data.telegramReturn === "object"
+      ? {
+          sent: telegramReturn.sent === true,
+          error: asString(telegramReturn.error),
+        }
+      : undefined,
   };
 }

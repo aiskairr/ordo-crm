@@ -13,6 +13,7 @@ export const PERMISSIONS = {
   reports: "Отчетность",
   bankCommissions: "Банковские комиссии",
   reportProfit: "Показывать прибыль в отчетности",
+  editDocumentPrices: "Возможность менять цены документа",
   expenses: "Расходы",
   payroll: "Зарплаты",
   commercialDocuments: "Счета юрлицам",
@@ -31,7 +32,7 @@ export type BranchKey = keyof typeof BRANCHES;
 export const ROLE_DEFAULT_PERMISSIONS: Record<CrmRole, PermissionKey[]> = {
   admin: Object.keys(PERMISSIONS) as PermissionKey[],
   owner: Object.keys(PERMISSIONS) as PermissionKey[],
-  manager: ["sales", "debtSale", "deliveries", "attendance", "reports", "reportProfit", "expenses", "payroll", "commercialDocuments", "reconciliation", "whatsappBroadcast", "customsCalculator", "bankCommissions", "about"],
+  manager: ["sales", "debtSale", "deliveries", "attendance", "reports", "reportProfit", "editDocumentPrices", "expenses", "payroll", "commercialDocuments", "reconciliation", "whatsappBroadcast", "customsCalculator", "bankCommissions", "about"],
   seller: ["sales", "debtSale", "deliveries", "attendance", "reports", "commercialDocuments", "about"],
   logistics: ["sales", "debtSale", "deliveries", "attendance", "commercialDocuments", "about"],
   accountant: ["attendance", "reports", "expenses", "payroll", "reconciliation", "priceFormula", "customsCalculator", "bankCommissions", "about"],
@@ -40,6 +41,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrmRole, PermissionKey[]> = {
 
 const ADMIN_ROLES: CrmRole[] = ["admin", "owner"];
 const REPORT_PROFIT_ROLES: CrmRole[] = ["admin", "owner", "manager", "accountant"];
+const DOCUMENT_PRICE_EDIT_ROLES: CrmRole[] = ["admin", "owner", "manager"];
 const PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
 export type UsersAccessDraft = CrmUser & {
@@ -58,9 +60,11 @@ export function normalizePermissions(role: CrmRole, permissions: string[]) {
   const allowed = new Set(Object.keys(PERMISSIONS));
   const normalized = [...new Set((permissions || []).map(String).filter((permission) => allowed.has(permission)))];
   if (!REPORT_PROFIT_ROLES.includes(role)) {
-    return normalized.filter((permission) => permission !== "reportProfit");
+    return normalized.filter((permission) => permission !== "reportProfit" && permission !== "editDocumentPrices");
   }
-  return normalized;
+  return DOCUMENT_PRICE_EDIT_ROLES.includes(role)
+    ? normalized
+    : normalized.filter((permission) => permission !== "editDocumentPrices");
 }
 
 export function toUserDraft(user: CrmUser): UsersAccessDraft {
@@ -89,6 +93,10 @@ export function initials(name: string) {
 
 export function isReportProfitAllowed(role: CrmRole) {
   return REPORT_PROFIT_ROLES.includes(role);
+}
+
+export function isDocumentPriceEditAllowed(role: CrmRole) {
+  return DOCUMENT_PRICE_EDIT_ROLES.includes(role);
 }
 
 export function arePermissionsLocked(role: CrmRole) {

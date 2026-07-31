@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { TelegramMiniApp } from "@/src/fsd/shared/ui/telegram-mini-app";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -12,6 +13,14 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+  themeColor: "#15182b",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -20,6 +29,7 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body>
+        <TelegramMiniApp />
         <Providers>{children}</Providers>
       </body>
     </html>

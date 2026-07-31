@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { BarChart3, ChevronLeft, ChevronRight, Printer, Receipt, RefreshCcw, RotateCcw, ScrollText } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, PencilLine, Printer, Receipt, RefreshCcw, RotateCcw, ScrollText } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -15,22 +15,25 @@ import {
 } from "recharts";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
+import { printSalesReceipt, type SalesReceiptData } from "@/src/fsd/features/print-sales-receipt";
 import {
   createReportReturn,
   getReportStores,
   getSalesReport,
   REPORT_TYPE_LABELS,
+  updateReportSalePrice,
   type CustomerType,
   type ReportProduct,
   type ReportRow,
   type ReportType,
+  type ReturnResponse,
 } from "../api/reports-api";
 import { ReportsPrint } from "./reports-print";
 import styles from "./reports-page.module.css";
 
 type Period = "yesterday" | "today" | "week" | "month" | "custom";
 type CustomerFilter = "all" | Exclude<CustomerType, "">;
-type PrintMode = "report" | "receipt" | "waybill" | null;
+type PrintMode = "report" | "waybill" | null;
 type ProductSummaryRow = {
   key: string;
   code: string;
@@ -131,6 +134,46 @@ function displayProducts(row: ReportRow): ReportProduct[] {
   return [{ index: 0, code: "", name: row.productText || "Товар", quantity: 1, price: row.amount, sum: row.amount, isGift: false }];
 }
 
+function getLoyaltyRedemption(comment: string) {
+  const match = String(comment || "").match(/бонус(?:ами|ы\s+списано)?\s*:\s*[−-]?\s*(\d[\d\s.,]*)/iu);
+  if (!match) return 0;
+  const value = Number(match[1].replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function receiptDataFromReport(row: ReportRow): SalesReceiptData {
+  const products = displayProducts(row);
+  const isReturn = row.type === "retailsalesreturn" || row.type === "salesreturn";
+  const loyaltyRedemption = isReturn ? 0 : getLoyaltyRedemption(row.comment);
+  const sourceDocumentNumber = isReturn
+    ? row.comment.match(/из документа\s+([^\n.]+)/iu)?.[1]?.trim()
+    : undefined;
+  const productTotal = products.reduce((sum, product) => sum + (product.isGift ? 0 : Number(product.sum) || 0), 0);
+
+  return {
+    receiptKind: isReturn ? "return" : "sale",
+    documentNumber: row.name,
+    sourceDocumentNumber,
+    dateTime: row.moment,
+    storeName: row.storeName,
+    employeeName: row.employeeName,
+    customerName: row.customerName,
+    items: products.map((product) => ({
+      name: product.name,
+      price: product.price,
+      quantity: product.quantity,
+      lineTotal: product.sum,
+      isGift: product.isGift,
+    })),
+    baseTotal: Math.max(productTotal + loyaltyRedemption, row.amount + loyaltyRedemption),
+    loyaltyRedemption,
+    finalTotal: row.amount,
+    paymentType: row.paymentType || (isReturn ? "Возврат" : "-"),
+    paidAmount: isReturn ? row.amount : row.paid,
+    unpaidAmount: isReturn ? 0 : row.unpaid,
+  };
+}
+
 function buildProductSummary(rows: ReportRow[]) {
   const summary = new Map<string, ProductSummaryRow>();
   for (const row of rows) {
@@ -207,6 +250,7 @@ export function ReportsPage() {
   const [retailStoreHref, setRetailStoreHref] = useState("");
   const [printMode, setPrintMode] = useState<PrintMode>(null);
   const [printRow, setPrintRow] = useState<ReportRow | null>(null);
+  const [createdReturn, setCreatedReturn] = useState<ReturnResponse | null>(null);
 
   const storesQuery = useQuery({ queryKey: ["report-stores"], queryFn: getReportStores });
   const selectedStore = storesQuery.data?.find((store) => store.href === retailStoreHref);
@@ -227,11 +271,37 @@ export function ReportsPage() {
   const returnMutation = useMutation({
     mutationFn: createReportReturn,
     onSuccess: (result) => {
-      showToast({ tone: "success", title: `Возврат ${result.document.name || ""} создан`, description: "Документ возврата создан в МойСклад." });
-      if (result.document.webUrl) window.open(result.document.webUrl, "_blank", "noopener,noreferrer");
+      setCreatedReturn(result);
+      showToast({
+        tone: "success",
+        title: `Возврат ${result.document.name || ""} создан`,
+        description: result.telegramReturn?.sent
+          ? "Документ создан в МойСклад, уведомление отправлено в Telegram."
+          : "Документ возврата создан в МойСклад.",
+      });
+      if (result.telegramReturn?.sent === false) {
+        showToast({
+          tone: "error",
+          title: "Возврат не отправлен в Telegram",
+          description: result.telegramReturn.error || "Telegram отклонил уведомление.",
+        });
+      }
       reportQuery.refetch();
     },
     onError: (error) => showToast({ tone: "error", title: "Не удалось создать возврат", description: getErrorText(error) }),
+  });
+
+  const priceMutation = useMutation({
+    mutationFn: updateReportSalePrice,
+    onSuccess: async (result) => {
+      showToast({
+        tone: result.warning ? "error" : "success",
+        title: `Цена в документе ${result.document.name || ""} изменена`,
+        description: result.warning || `Новая сумма: ${formatSom(result.document.amount)}. Прибыль: ${formatSom(result.document.netProfit)}.`,
+      });
+      await reportQuery.refetch();
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось изменить цену", description: getErrorText(error) }),
   });
 
   const rows = reportQuery.data?.rows ?? [];
@@ -254,6 +324,7 @@ export function ReportsPage() {
   const productSummaryAmount = filteredProductSummary.reduce((sum, product) => sum + product.amount, 0);
   const chartData = buildChartData(visibleRows);
   const canViewProfit = reportQuery.data?.canViewProfit === true;
+  const canEditSales = reportQuery.data?.canEditSales === true;
   const currentReportTitle = REPORT_TYPE_LABELS[reportType];
 
   const selectPeriod = (nextPeriod: Period, nextOffset = 0) => {
@@ -306,6 +377,26 @@ export function ReportsPage() {
     });
   };
 
+  const handleUpdatePrice = (row: ReportRow, product: ReportProduct, index: number) => {
+    if (!canCreateReturn(row)) return;
+    const input = window.prompt(`Новая цена за единицу товара «${product.name}»`, String(product.price));
+    if (input === null) return;
+    const price = Number(input.replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(price) || price < 0) {
+      showToast({ tone: "error", title: "Некорректная цена", description: "Введите число не меньше нуля." });
+      return;
+    }
+    if (price === product.price) return;
+    if (!window.confirm(`Изменить цену «${product.name}» с ${formatSom(product.price)} на ${formatSom(price)} в документе ${row.name}?`)) return;
+    priceMutation.mutate({
+      documentId: row.id,
+      documentType: row.type as "retaildemand" | "demand",
+      productIndex: product.index ?? index,
+      positionId: product.positionId,
+      price,
+    });
+  };
+
   const handlePrintReport = () => {
     setPrintMode("report");
     setPrintRow(null);
@@ -313,9 +404,23 @@ export function ReportsPage() {
   };
 
   const handlePrintReceipt = (row: ReportRow) => {
-    setPrintMode("receipt");
-    setPrintRow(row);
-    window.setTimeout(() => printWithTitle(`Товарный чек ${row.name}`), 0);
+    try {
+      printSalesReceipt(receiptDataFromReport(row));
+    } catch (error) {
+      showToast({ tone: "error", title: "Не удалось открыть печать", description: getErrorText(error) });
+    }
+  };
+
+  const handlePrintReturnReceipt = () => {
+    if (!createdReturn?.receipt) {
+      showToast({ tone: "error", title: "Чек недоступен", description: "Сервер не вернул данные созданного возврата." });
+      return;
+    }
+    try {
+      printSalesReceipt(createdReturn.receipt);
+    } catch (error) {
+      showToast({ tone: "error", title: "Не удалось открыть печать", description: getErrorText(error) });
+    }
   };
 
   const handlePrintWaybill = (row: ReportRow) => {
@@ -545,7 +650,11 @@ export function ReportsPage() {
                 <header>
                   <div><span>Номер</span><strong>{row.name || "-"}</strong></div>
                   <div><span>Время</span><strong>{formatDateTime(row.moment)}</strong></div>
-                  <div><span>Сумма</span><strong>{formatSom(row.amount)}</strong></div>
+                  <div>
+                    <span>Сумма</span>
+                    <strong>{formatSom(row.amount)}</strong>
+                    {Number(row.exchangeRate) > 1 ? <small>{formatQuantity(Number(row.sourceAmount))} {row.currencyIsoCode || "USD"} × {row.exchangeRate}</small> : null}
+                  </div>
                   <div><span>Склад</span><strong>{row.storeName || "-"}</strong></div>
                   <div><span>Клиент</span><strong>{row.customerName || "-"}</strong>{row.customerTypeLabel ? <small>{row.customerTypeLabel}</small> : null}</div>
                   <div><span>Сотрудник</span><strong>{row.employeeName || "-"}</strong></div>
@@ -573,15 +682,33 @@ export function ReportsPage() {
                         <tr key={`${product.code}-${product.name}-${index}`}>
                           <td>{product.code || "-"}</td>
                           <td>{product.name}</td>
-                          <td>{product.isGift ? "Подарок" : formatSom(product.price)}</td>
+                          <td>
+                            {product.isGift ? "Подарок" : formatSom(product.price)}
+                            {!product.isGift && Number(product.exchangeRate) > 1 ? (
+                              <small className={styles.currencyHint}>{formatQuantity(Number(product.sourcePrice))} {product.currencyIsoCode || "USD"} × {product.exchangeRate}</small>
+                            ) : null}
+                          </td>
                           <td>{formatQuantity(product.quantity)}</td>
-                          <td>{product.isGift ? formatSom(0) : formatSom(product.sum)}</td>
+                          <td>
+                            {product.isGift ? formatSom(0) : formatSom(product.sum)}
+                            {!product.isGift && Number(product.exchangeRate) > 1 ? (
+                              <small className={styles.currencyHint}>{formatQuantity(Number(product.sourceSum))} {product.currencyIsoCode || "USD"} × {product.exchangeRate}</small>
+                            ) : null}
+                          </td>
                           <td>
                             {canCreateReturn(row) ? (
-                              <button type="button" className={styles.tableAction} onClick={() => handleCreateReturn(row, product)} disabled={returnMutation.isPending}>
-                                <RotateCcw size={14} />
-                                Возврат
-                              </button>
+                              <div className={styles.tableActions}>
+                                {canEditSales ? (
+                                  <button type="button" className={styles.tableAction} onClick={() => handleUpdatePrice(row, product, index)} disabled={priceMutation.isPending}>
+                                    <PencilLine size={14} />
+                                    Исправить цену
+                                  </button>
+                                ) : null}
+                                <button type="button" className={styles.tableAction} onClick={() => handleCreateReturn(row, product)} disabled={returnMutation.isPending}>
+                                  <RotateCcw size={14} />
+                                  Возврат
+                                </button>
+                              </div>
                             ) : <span className={styles.mutedCell}>-</span>}
                           </td>
                         </tr>
@@ -592,12 +719,12 @@ export function ReportsPage() {
 
                 <footer>
                   <div className={styles.documentActions}>
+                    <button type="button" className={styles.secondaryButton} onClick={() => handlePrintReceipt(row)}>
+                      <Receipt size={16} />
+                      {row.type === "retailsalesreturn" || row.type === "salesreturn" ? "Возвратный чек" : "Товарный чек"}
+                    </button>
                     {(row.type === "retaildemand" || row.type === "demand") ? (
                       <>
-                        <button type="button" className={styles.secondaryButton} onClick={() => handlePrintReceipt(row)}>
-                          <Receipt size={16} />
-                          Товарный чек
-                        </button>
                         <button type="button" className={styles.secondaryButton} onClick={() => handlePrintWaybill(row)}>
                           <ScrollText size={16} />
                           Накладная
@@ -612,6 +739,41 @@ export function ReportsPage() {
           })}
         </div>
       </section>
+
+      {createdReturn ? (
+        <div className={styles.returnOverlay} role="presentation" onMouseDown={() => setCreatedReturn(null)}>
+          <section
+            className={styles.returnModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="return-created-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <strong id="return-created-title">Возврат создан</strong>
+                <span>Возвратный документ №{createdReturn.document.name || "-"}</span>
+              </div>
+              <button type="button" aria-label="Закрыть окно" onClick={() => setCreatedReturn(null)}>×</button>
+            </header>
+            <div className={styles.returnModalSummary}>
+              <span>Сумма возврата</span>
+              <strong>{formatSom(createdReturn.receipt?.finalTotal || 0)}</strong>
+            </div>
+            <div className={styles.returnModalActions}>
+              <button type="button" onClick={handlePrintReturnReceipt} disabled={!createdReturn.receipt}>
+                <Printer size={17} />
+                Распечатать возвратный чек
+              </button>
+              {createdReturn.document.webUrl ? (
+                <button type="button" className={styles.returnDocumentButton} onClick={() => window.open(createdReturn.document.webUrl, "_blank", "noopener,noreferrer")}>
+                  Перейти к документу
+                </button>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <ReportsPrint
         mode={printMode}

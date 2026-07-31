@@ -336,7 +336,8 @@
 .content {
   min-width: 0;
   padding: 34px 34px 34px 46px;
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .mobileToggle {

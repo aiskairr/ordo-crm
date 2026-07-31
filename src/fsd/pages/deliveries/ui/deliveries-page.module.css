@@ -270,6 +270,12 @@
   font-weight: 900;
 }
 
+.phoneList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
 .items div {
   display: flex;
   justify-content: space-between;

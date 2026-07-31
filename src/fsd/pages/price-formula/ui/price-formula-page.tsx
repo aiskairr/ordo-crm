@@ -705,56 +705,58 @@ export function PriceFormulaPage() {
         <div className={styles.tableTitle}>
           <div><h2>Товары</h2><p>{supplyFilter ? `Приемка ${supplyName}. ` : ""}{status}</p></div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th><input type="checkbox" checked={pageProducts.length > 0 && pageProducts.every((product) => selected.has(product.id))} onChange={(event) => selectPage(event.target.checked)} /></th>
-              <th>Код</th>
-              <th>Наименование</th>
-              <th>Шаблон группы</th>
-              <th>Закупка</th>
-              <th>Опт. сейчас</th>
-              <th>Опт. новая USD</th>
-              <th>Мин. сейчас</th>
-              <th>Мин. новая</th>
-              <th>3-6 сейчас</th>
-              <th>3-6 новая</th>
-              <th>9-12 сейчас</th>
-              <th>9-12 новая</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageProducts.map((product) => {
-              const next = calculated.get(product.id);
-              const reason = skipped.get(product.id);
-              const currentTemplateId = productTemplates.get(product.id) || (product.folder?.template ? product.folder.href : "");
-              const applicableTemplates = templates.filter((template) => template.folderHref === product.folder?.href);
-              return (
-                <tr key={product.id} className={cx(next && styles.changed, reason && styles.skipped, product.archived && styles.archived)}>
-                  <td><input type="checkbox" checked={selected.has(product.id)} onChange={(event) => toggleProduct(product.id, event.target.checked)} /></td>
-                  <td>{product.code || "-"}</td>
-                  <td><strong>{product.name}</strong>{product.article ? <small>Арт: {product.article}</small> : null}{product.archived ? <small>Архив</small> : null}{reason ? <small>{reason}</small> : null}</td>
-                  <td>
-                    <select className={styles.rowSelect} value={currentTemplateId} disabled={!applicableTemplates.length} onChange={(event) => applyTemplateToProductFolder(product, event.target.value)}>
-                      <option value="">{product.folder?.template ? "Шаблон подгруппы" : "Выберите шаблон"}</option>
-                      {applicableTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} - {template.folderName}</option>)}
-                    </select>
-                  </td>
-                  <td>{product.buyPrice?.value ? `${formatNumber(product.buyPrice.value)} ${product.buyPrice.currencyIsoCode || product.buyPrice.currencyName || ""}` : "нет закупки"}</td>
-                  <td>{formatWholesale(product, effectiveWholesale)}</td>
-                  <td>{next ? <><input value={next.wholesalePrice} type="number" onChange={(event) => changeCalculated(product.id, "wholesalePrice", Number(event.target.value))} /><span className={styles.priceCurrency}>USD</span></> : <span className={styles.muted}>не рассчитано</span>}</td>
-                  <td>{formatMoney(product.minPrice?.value || 0, "сом")}</td>
-                  <td>{next ? <input value={next.minPrice} type="number" onChange={(event) => changeCalculated(product.id, "minPrice", Number(event.target.value))} /> : <span className={styles.muted}>не рассчитано</span>}</td>
-                  <td>{formatMoney(getPrice(product, effectiveType36), "сом")}</td>
-                  <td>{next?.price36 !== null && next?.price36 !== undefined ? <input value={next.price36} type="number" onChange={(event) => changeCalculated(product.id, "price36", Number(event.target.value))} /> : <span className={styles.muted}>не считать</span>}</td>
-                  <td>{formatMoney(getPrice(product, effectiveType912), "сом")}</td>
-                  <td>{next?.price912 !== null && next?.price912 !== undefined ? <input value={next.price912} type="number" onChange={(event) => changeCalculated(product.id, "price912", Number(event.target.value))} /> : <span className={styles.muted}>не считать</span>}</td>
-                </tr>
-              );
-            })}
-            {!pageProducts.length ? <tr><td colSpan={13}>{loadingCatalog ? "Загрузка..." : "Товары не найдены."}</td></tr> : null}
-          </tbody>
-        </table>
+        <div className={styles.tableScroll}>
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" checked={pageProducts.length > 0 && pageProducts.every((product) => selected.has(product.id))} onChange={(event) => selectPage(event.target.checked)} /></th>
+                <th>Код</th>
+                <th>Наименование</th>
+                <th>Шаблон группы</th>
+                <th>Закупка</th>
+                <th>Опт. сейчас</th>
+                <th>Опт. новая USD</th>
+                <th>Мин. сейчас</th>
+                <th>Мин. новая</th>
+                <th>3-6 сейчас</th>
+                <th>3-6 новая</th>
+                <th>9-12 сейчас</th>
+                <th>9-12 новая</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageProducts.map((product) => {
+                const next = calculated.get(product.id);
+                const reason = skipped.get(product.id);
+                const currentTemplateId = productTemplates.get(product.id) || (product.folder?.template ? product.folder.href : "");
+                const applicableTemplates = templates.filter((template) => template.folderHref === product.folder?.href);
+                return (
+                  <tr key={product.id} className={cx(next && styles.changed, reason && styles.skipped, product.archived && styles.archived)}>
+                    <td><input type="checkbox" checked={selected.has(product.id)} onChange={(event) => toggleProduct(product.id, event.target.checked)} /></td>
+                    <td>{product.code || "-"}</td>
+                    <td><strong>{product.name}</strong>{product.article ? <small>Арт: {product.article}</small> : null}{product.archived ? <small>Архив</small> : null}{reason ? <small>{reason}</small> : null}</td>
+                    <td>
+                      <select className={styles.rowSelect} value={currentTemplateId} disabled={!applicableTemplates.length} onChange={(event) => applyTemplateToProductFolder(product, event.target.value)}>
+                        <option value="">{product.folder?.template ? "Шаблон подгруппы" : "Выберите шаблон"}</option>
+                        {applicableTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} - {template.folderName}</option>)}
+                      </select>
+                    </td>
+                    <td>{product.buyPrice?.value ? `${formatNumber(product.buyPrice.value)} ${product.buyPrice.currencyIsoCode || product.buyPrice.currencyName || ""}` : "нет закупки"}</td>
+                    <td>{formatWholesale(product, effectiveWholesale)}</td>
+                    <td>{next ? <><input value={next.wholesalePrice} type="number" onChange={(event) => changeCalculated(product.id, "wholesalePrice", Number(event.target.value))} /><span className={styles.priceCurrency}>USD</span></> : <span className={styles.muted}>не рассчитано</span>}</td>
+                    <td>{formatMoney(product.minPrice?.value || 0, "сом")}</td>
+                    <td>{next ? <input value={next.minPrice} type="number" onChange={(event) => changeCalculated(product.id, "minPrice", Number(event.target.value))} /> : <span className={styles.muted}>не рассчитано</span>}</td>
+                    <td>{formatMoney(getPrice(product, effectiveType36), "сом")}</td>
+                    <td>{next?.price36 !== null && next?.price36 !== undefined ? <input value={next.price36} type="number" onChange={(event) => changeCalculated(product.id, "price36", Number(event.target.value))} /> : <span className={styles.muted}>не считать</span>}</td>
+                    <td>{formatMoney(getPrice(product, effectiveType912), "сом")}</td>
+                    <td>{next?.price912 !== null && next?.price912 !== undefined ? <input value={next.price912} type="number" onChange={(event) => changeCalculated(product.id, "price912", Number(event.target.value))} /> : <span className={styles.muted}>не считать</span>}</td>
+                  </tr>
+                );
+              })}
+              {!pageProducts.length ? <tr><td colSpan={13}>{loadingCatalog ? "Загрузка..." : "Товары не найдены."}</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
         <footer className={styles.pagination}>
           <button className={styles.secondaryButton} disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} type="button">Назад</button>
           <span>Страница {activePage} из {pageCount}</span>

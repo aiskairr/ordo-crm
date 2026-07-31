@@ -11,7 +11,7 @@ type ReportTotals = {
   netProfit: number;
 };
 
-type PrintMode = "report" | "receipt" | "waybill" | null;
+type PrintMode = "report" | "waybill" | null;
 
 type PaymentSummaryRow = {
   name: string;
@@ -80,44 +80,6 @@ function buildPaymentSummary(rows: ReportRow[]) {
 function displayProducts(row: ReportRow) {
   if (row.products.length) return row.products;
   return [{ index: 0, code: "", name: row.productText || "Товар", quantity: 1, price: row.amount, sum: row.amount, isGift: false }];
-}
-
-function ReceiptPrint({ row }: { row: ReportRow }) {
-  const products = displayProducts(row);
-  return (
-    <div className={styles.receiptSheet}>
-      <h1>ТОВАРНЫЙ ЧЕК</h1>
-      <div className={styles.receiptCenter}>{row.organizationName || "Организация"}</div>
-      <div className={styles.receiptLine} />
-      <div className={styles.receiptRow}><span>Документ:</span><b>№ {row.name || "-"}</b></div>
-      <div className={styles.receiptRow}><span>Дата:</span><b>{dateTime(row.moment)}</b></div>
-      <div className={styles.receiptRow}><span>Склад:</span><b>{row.storeName || "-"}</b></div>
-      <div className={styles.receiptRow}><span>Кассир:</span><b>{row.employeeName || "-"}</b></div>
-      <div className={styles.receiptRow}><span>Покупатель:</span><b>{row.customerName || "-"}</b></div>
-      <div className={styles.receiptLine} />
-      <div className={styles.receiptItems}>
-        {products.map((product, index) => (
-          <div className={styles.receiptItem} key={`${product.code}-${product.name}-${index}`}>
-            <div className={styles.receiptItemName}>{index + 1}. {product.name}</div>
-            <div className={styles.receiptItemCalc}>
-              <span>{product.isGift ? "ПОДАРОК" : `${money(product.price)} x ${qty(product.quantity)}`}</span>
-              <b>{product.isGift ? money(0) : money(product.sum)}</b>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className={styles.receiptLine} />
-      <div className={styles.receiptTotal}><span>ИТОГО</span><b>{money(row.amount)}</b></div>
-      <div className={styles.receiptRow}><span>Тип оплаты:</span><b>{row.paymentType || "-"}</b></div>
-      <div className={styles.receiptRow}><span>Оплачено:</span><b>{money(row.paid)}</b></div>
-      {row.unpaid > 0 ? <div className={styles.receiptRow}><span>Не оплачено:</span><b>{money(row.unpaid)}</b></div> : null}
-      {row.comment ? <div className={styles.receiptComment}>{row.comment}</div> : null}
-      <div className={styles.receiptLine} />
-      <div className={styles.receiptCount}>Позиций: {products.length}</div>
-      <div className={styles.receiptThanks}>Спасибо за покупку!</div>
-      <div className={styles.receiptCut} />
-    </div>
-  );
 }
 
 function WaybillPrint({ row }: { row: ReportRow }) {
@@ -268,17 +230,14 @@ function ReportPrint({ rows, totals, canViewProfit, reportTitle, dateFrom, dateT
 }
 
 export function ReportsPrint({ mode, row, rows, totals, canViewProfit, reportTitle, dateFrom, dateTo }: ReportsPrintProps) {
-  const printClassName = mode === "receipt"
-    ? `${styles.printReport} ${styles.receiptPrintReport}`
-    : mode === "report"
-      ? `${styles.printReport} ${styles.reportPrintReport}`
-      : styles.printReport;
+  const printClassName = mode === "report"
+    ? `${styles.printReport} ${styles.reportPrintReport}`
+    : styles.printReport;
   return (
     <section className={printClassName} aria-hidden={mode ? "false" : "true"}>
       {mode === "report" ? (
         <ReportPrint rows={rows} totals={totals} canViewProfit={canViewProfit} reportTitle={reportTitle} dateFrom={dateFrom} dateTo={dateTo} />
       ) : null}
-      {mode === "receipt" && row ? <ReceiptPrint row={row} /> : null}
       {mode === "waybill" && row ? <WaybillPrint row={row} /> : null}
     </section>
   );

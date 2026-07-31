@@ -4,6 +4,35 @@ import type { CrmRole, CrmUser, CrmUserCreate, CrmUserUpdate } from "@/src/fsd/e
 type UnknownRecord = Record<string, unknown>;
 type MoySkladRemovalStatus = NonNullable<CrmUser["moySkladRemoval"]>["status"];
 
+export type EmployeeDeletionImpact = {
+  counts: {
+    demand: number;
+    retaildemand: number;
+  };
+  total: number;
+  unconfigured: string[];
+};
+
+export type EmployeeReassignmentResult = {
+  completed: boolean;
+  processed: number;
+  remaining: number;
+  impact: EmployeeDeletionImpact;
+  finalizationFailed: boolean;
+  moySkladRemoval?: {
+    status: MoySkladRemovalStatus;
+    reason?: string;
+  };
+};
+
+export type ArchivedCrmEmployee = {
+  id: string;
+  href: string;
+  name: string;
+  description: string;
+  branchIds: string[];
+};
+
 function asRecord(value: unknown): UnknownRecord {
   return value && typeof value === "object" ? (value as UnknownRecord) : {};
 }
@@ -117,4 +146,68 @@ export async function deleteCrmUser(id: string) {
         }
       : undefined,
   };
+}
+
+function normalizeDeletionImpact(value: unknown): EmployeeDeletionImpact {
+  const record = asRecord(value);
+  const counts = asRecord(record.counts);
+  return {
+    counts: {
+      demand: asNumber(counts.demand),
+      retaildemand: asNumber(counts.retaildemand),
+    },
+    total: asNumber(record.total),
+    unconfigured: asStringArray(record.unconfigured),
+  };
+}
+
+export async function getCrmUserDeletionImpact(id: string) {
+  return normalizeDeletionImpact(await apiClient<unknown>(`/api/crm/users/${id}/deletion-impact`));
+}
+
+export async function reassignAndDeleteCrmUser(id: string, targetUserId: string, batchSize = 5): Promise<EmployeeReassignmentResult> {
+  const response = asRecord(await apiClient<unknown>(`/api/crm/users/${id}/reassign-and-delete`, {
+    method: "POST",
+    body: { targetUserId, batchSize },
+    timeoutMs: 60_000,
+  }));
+  const removal = asRecord(response.moySkladRemoval);
+  return {
+    completed: asBoolean(response.completed, false),
+    processed: asNumber(response.processed),
+    remaining: asNumber(response.remaining),
+    impact: normalizeDeletionImpact(response.impact),
+    finalizationFailed: asBoolean(response.finalizationFailed, false),
+    moySkladRemoval: response.moySkladRemoval && typeof response.moySkladRemoval === "object"
+      ? {
+          status: asString(removal.status) as MoySkladRemovalStatus,
+          reason: asString(removal.reason),
+        }
+      : undefined,
+  };
+}
+
+function normalizeArchivedEmployee(value: unknown): ArchivedCrmEmployee {
+  const record = asRecord(value);
+  return {
+    id: asString(record.id),
+    href: asString(record.href),
+    name: asString(record.name),
+    description: asString(record.description),
+    branchIds: asStringArray(record.branchIds),
+  };
+}
+
+export async function getArchivedCrmEmployees() {
+  const response = asRecord(await apiClient<unknown>("/api/crm/users/archived-moysklad"));
+  const employees = Array.isArray(response.employees) ? response.employees : [];
+  return employees.map(normalizeArchivedEmployee).filter((employee) => employee.href);
+}
+
+export async function restoreArchivedCrmEmployee(employeeHref: string) {
+  return apiClient<unknown>("/api/crm/users/archived-moysklad", {
+    method: "POST",
+    body: { employeeHref },
+    timeoutMs: 60_000,
+  });
 }

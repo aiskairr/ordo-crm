@@ -321,6 +321,279 @@
   animation: spin 1s linear infinite;
 }
 
+.modalBackdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 24px;
+  background: rgba(9, 14, 25, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.modal {
+  display: grid;
+  gap: 18px;
+  width: min(680px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  background: var(--panel);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+  padding: 22px;
+}
+
+.modalHeader,
+.modalTitle,
+.modalActions,
+.modalNotice,
+.modalProgress,
+.modalLoading {
+  display: flex;
+  align-items: center;
+}
+
+.modalHeader {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.modalTitle {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.modalTitle h2,
+.modalTitle p {
+  margin: 0;
+}
+
+.modalTitle h2 {
+  font-size: 22px;
+}
+
+.modalTitle p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.modalDangerIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  background: rgba(255, 92, 92, 0.12);
+  color: #ff6f6f;
+}
+
+.archiveIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  background: rgba(56, 114, 255, 0.12);
+  color: var(--primary);
+}
+
+.modalClose {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.impactGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.impactGrid article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel-muted);
+  padding: 14px;
+}
+
+.impactGrid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.impactGrid strong {
+  font-size: 24px;
+}
+
+.impactTotal {
+  border-color: rgba(255, 92, 92, 0.25) !important;
+}
+
+.modalField {
+  display: grid;
+  gap: 8px;
+}
+
+.modalField span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.modalField select {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-muted);
+  padding: 0 14px;
+  color: var(--text);
+  font: inherit;
+  font-weight: 750;
+}
+
+.modalNotice,
+.modalProgress,
+.modalLoading,
+.modalWarning,
+.modalError {
+  gap: 9px;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.modalNotice,
+.modalLoading {
+  background: var(--panel-muted);
+  color: var(--muted);
+}
+
+.modalNotice svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.modalProgress {
+  background: rgba(56, 114, 255, 0.1);
+  color: var(--primary);
+}
+
+.modalWarning {
+  border: 1px solid rgba(255, 196, 0, 0.24);
+  background: rgba(255, 196, 0, 0.08);
+  color: #c8a647;
+}
+
+.modalError {
+  border: 1px solid rgba(255, 92, 92, 0.24);
+  background: rgba(255, 92, 92, 0.08);
+  color: #ff6f6f;
+}
+
+.modalActions {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.archiveModal {
+  width: min(760px, 100%);
+}
+
+.archiveList {
+  display: grid;
+  gap: 10px;
+}
+
+.archiveEmployee {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-muted);
+  padding: 14px 16px;
+}
+
+.archiveEmployee h3,
+.archiveEmployee p {
+  margin: 0;
+}
+
+.archiveEmployee h3 {
+  font-size: 17px;
+}
+
+.archiveEmployee p,
+.archiveEmployee small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.archiveEmployee small {
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.restoreButton {
+  display: inline-flex;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(53, 199, 126, 0.24);
+  border-radius: 14px;
+  background: rgba(53, 199, 126, 0.1);
+  padding: 0 14px;
+  color: #35c77e;
+  font-weight: 850;
+}
+
+.restoreButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.archiveEmpty {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  min-height: 190px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.archiveEmpty strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.archiveEmpty span {
+  font-size: 13px;
+}
+
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -363,5 +636,34 @@
 
   .formGrid {
     grid-template-columns: 1fr;
+  }
+
+  .modalBackdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 24px 24px 0 0;
+    padding: 18px;
+  }
+
+  .impactGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .modalActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .archiveEmployee {
+    display: grid;
+  }
+
+  .restoreButton {
+    width: 100%;
   }
 }

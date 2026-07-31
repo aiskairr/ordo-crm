@@ -53,6 +53,16 @@ body {
   min-height: 100%;
 }
 
+html[data-telegram-mini-app="true"],
+html[data-telegram-mini-app="true"] body {
+  min-height: var(--tg-viewport-stable-height, 100dvh);
+  overscroll-behavior-y: none;
+}
+
+html[data-telegram-mini-app="true"] body {
+  background-color: var(--tg-theme-bg-color, var(--bg));
+}
+
 body {
   margin: 0;
   background:

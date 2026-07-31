@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, FileText, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { FileText, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import {
@@ -26,7 +26,6 @@ import {
 } from "../api/commercial-documents-api";
 import styles from "./commercial-documents-page.module.css";
 
-const wholesaleGroup = "оптовые клиенты";
 const organizationsGroup = "организации";
 
 type FormState = Omit<
@@ -34,7 +33,6 @@ type FormState = Omit<
   "documentType" | "storeHref" | "employeeName" | "branchName" | "items" | "customerHref" | "customerGroups" | "customerCorrAccount"
 > & {
   customerHref: string;
-  wholesale: boolean;
 };
 
 const initialForm: FormState = {
@@ -50,7 +48,6 @@ const initialForm: FormState = {
   customerEmail: "",
   customerAddress: "",
   customerHref: "",
-  wholesale: false,
 };
 
 function initialItems() {
@@ -70,27 +67,29 @@ function normalizePhone(value: string) {
   return `+996${digits.slice(0, 9)}`;
 }
 
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function printPdf(blob: Blob, fileName: string) {
-  const pdfUrl = URL.createObjectURL(blob);
-  const win = window.open("", "_blank", "noopener");
-  if (!win) {
-    downloadBlob(blob, fileName);
-    return;
-  }
-  win.document.write(`<!doctype html><title>${fileName}</title><iframe src="${pdfUrl}" style="width:100%;height:100%;border:0"></iframe>`);
-  win.document.close();
-  window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60000);
+function printDocument(blob: Blob) {
+  const documentUrl = URL.createObjectURL(blob);
+  const frame = document.createElement("iframe");
+  frame.title = "Печатный документ";
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.onload = () => {
+    window.setTimeout(() => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    }, 250);
+    window.setTimeout(() => {
+      frame.remove();
+      URL.revokeObjectURL(documentUrl);
+    }, 60000);
+  };
+  frame.src = documentUrl;
+  document.body.append(frame);
 }
 
 export function CommercialDocumentsPage() {
@@ -140,10 +139,10 @@ export function CommercialDocumentsPage() {
       setOrderModalOpen(true);
       setSelectedOrder(null);
       void ordersQuery.refetch();
-      downloadBlob(data.blob, data.fileName);
+      printDocument(data.blob);
       showToast({
         tone: "success",
-        title: data.documentType === "customerorder" ? "PDF и заказ созданы" : "PDF-счет сформирован",
+        title: data.documentType === "customerorder" ? "Счёт и заказ созданы" : "Счёт сформирован",
         description: data.documentName || data.fileName,
       });
       setForm(initialForm);
@@ -167,7 +166,7 @@ export function CommercialDocumentsPage() {
   const proposalMutation = useMutation({
     mutationFn: createCommercialProposalPdf,
     onSuccess: (data) => {
-      downloadBlob(data.blob, data.fileName);
+      printDocument(data.blob);
       showToast({ tone: "success", title: "Коммерческое предложение готово", description: data.fileName });
     },
     onError: (error) => showToast({ tone: "error", title: "Не удалось создать коммерческое предложение", description: getErrorText(error) }),
@@ -198,11 +197,7 @@ export function CommercialDocumentsPage() {
   const activeItem = items.find((item) => item.id === activeItemId) ?? items[0];
   const stores = storesQuery.data ?? [];
 
-  const customerGroups = useMemo(() => {
-    const groups = form.customerMode === "new" ? [organizationsGroup] : [];
-    if (form.wholesale) groups.push(wholesaleGroup);
-    return groups;
-  }, [form.customerMode, form.wholesale]);
+  const customerGroups = form.customerMode === "new" ? [organizationsGroup] : [];
 
   const patchItem = (id: string, patch: Partial<CommercialItem>) => {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
@@ -232,7 +227,7 @@ export function CommercialDocumentsPage() {
 
   const chooseProduct = (product: CommercialProduct) => {
     const target = activeItem ?? makeCommercialItem();
-    const price = form.wholesale && product.wholesalePrice ? product.wholesalePrice : product.minPrice || product.price || 0;
+    const price = product.minPrice || product.price || 0;
     patchItem(target.id, {
       productName: product.name,
       code: product.code || "",
@@ -258,7 +253,6 @@ export function CommercialDocumentsPage() {
       customerPhone: customer.phone || "",
       customerEmail: customer.email || "",
       customerAddress: customer.actualAddress || "",
-      wholesale: Boolean(customer.groups?.includes(wholesaleGroup)),
     });
     setCustomerSearch(customer.name);
     setSelectedOrder(null);
@@ -325,8 +319,7 @@ export function CommercialDocumentsPage() {
         </div>
         <div className={styles.headerActions}>
           {currentCustomerHref ? <button type="button" onClick={() => setOrderModalOpen(true)}><FileText size={17} /> Заказы / отгрузки</button> : null}
-          {result ? <button type="button" onClick={() => printPdf(result.blob, result.fileName)}><Printer size={17} /> Печать</button> : null}
-          {result ? <button type="button" onClick={() => downloadBlob(result.blob, result.fileName)}><Download size={17} /> PDF</button> : null}
+          {result ? <button type="button" onClick={() => printDocument(result.blob)}><Printer size={17} /> Печать</button> : null}
           {result?.documentWebUrl ? <a href={result.documentWebUrl} target="_blank" rel="noreferrer">МойСклад</a> : null}
         </div>
       </header>
@@ -365,7 +358,6 @@ export function CommercialDocumentsPage() {
               <label><span>БИК</span><input value={form.customerBik} onChange={(event) => setForm({ ...form, customerBik: event.target.value })} /></label>
               <label><span>Расчетный счет</span><input value={form.customerSettlementAccount} onChange={(event) => setForm({ ...form, customerSettlementAccount: event.target.value })} /></label>
               <label><span>ОКПО</span><input value={form.customerOkpo} onChange={(event) => setForm({ ...form, customerOkpo: event.target.value })} /></label>
-              <label><span>Группа</span><label className={styles.check}><input type="checkbox" checked={form.wholesale} onChange={(event) => setForm({ ...form, wholesale: event.target.checked })} /> Оптовый клиент</label></label>
               <label className={styles.wide}><span>Адрес</span><input value={form.customerAddress} onChange={(event) => setForm({ ...form, customerAddress: event.target.value })} /></label>
               <label className={styles.wide}><span>Описание документа</span><input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Например: Счет на оплату техники" /></label>
             </div>
@@ -378,43 +370,72 @@ export function CommercialDocumentsPage() {
             </div>
             <div className={styles.items}>
               {items.map((item, index) => (
-                <article key={item.id} className={item.id === activeItemId ? styles.selectedItem : ""} onClick={() => setActiveItemId(item.id)}>
-                  <label className={styles.productCell}>
+                <article
+                  key={item.id}
+                  className={item.id === activeItemId ? styles.selectedItem : ""}
+                  onClick={() => {
+                    if (item.id === activeItemId) return;
+                    setActiveItemId(item.id);
+                    setProductSearch("");
+                  }}
+                >
+                  <div
+                    className={styles.productCell}
+                    onBlur={(event) => {
+                      const nextTarget = event.relatedTarget;
+                      if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+                      setProductSearch("");
+                    }}
+                  >
                     <span>Товар {index + 1}</span>
                     <div className={styles.inlineSearch}>
                       <Search size={16} />
                       <input
-                        value={item.id === activeItemId ? productSearch : item.productName}
-                        onFocus={() => {
+                        value={item.productName}
+                        aria-label={`Поиск товара ${index + 1}`}
+                        onFocus={(event) => {
                           setActiveItemId(item.id);
-                          setProductSearch(item.productName || "");
+                          setProductSearch("");
+                          event.currentTarget.select();
                         }}
                         onChange={(event) => {
                           setActiveItemId(item.id);
                           patchItem(item.id, { productName: event.target.value, assortmentHref: "" });
                           setProductSearch(event.target.value);
                         }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            setProductSearch("");
+                            event.currentTarget.blur();
+                          }
+                        }}
                         placeholder="Название, код или артикул товара"
                       />
                     </div>
                     {item.id === activeItemId && productSearch.trim().length >= 2 ? (
                       <div className={styles.inlineResults}>
-                        {(productQuery.data ?? []).map((product) => (
+                        {(productQuery.data ?? []).slice(0, 10).map((product) => (
                           <button key={product.href || product.id} type="button" onClick={() => chooseProduct(product)}>
                             <strong>{product.name}</strong>
-                            <span>{product.code || "Без кода"} · Мин: {money(product.minPrice || product.price || 0)} · Опт: {money(product.wholesalePrice || 0)}</span>
+                            <span>{product.code || "Без кода"} · Цена: {money(product.minPrice || product.price || 0)}</span>
                           </button>
                         ))}
+                        {productQuery.isLoading ? <p>Ищу товары...</p> : null}
                         {!productQuery.isLoading && !(productQuery.data ?? []).length ? <p>Ничего не найдено.</p> : null}
+                        {!productQuery.isLoading && (productQuery.data?.length || 0) > 10 ? (
+                          <p className={styles.resultsHint}>Показаны первые 10 из {productQuery.data?.length}. Уточните название или код.</p>
+                        ) : null}
                       </div>
                     ) : null}
-                  </label>
+                  </div>
                   <label><span>Кол-во</span><input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => patchItem(item.id, { quantity: Number(event.target.value) })} /></label>
                   <label><span>Цена</span><input type="number" min="0" step="0.01" value={item.productPrice} onChange={(event) => patchItem(item.id, { productPrice: Number(event.target.value) })} /></label>
                   <label><span>Код</span><input value={item.code} onChange={(event) => patchItem(item.id, { code: event.target.value })} /></label>
-                  <strong>{money(item.productPrice * item.quantity)}</strong>
+                  <div className={styles.lineTotal}><span>Сумма</span><strong>{money(item.productPrice * item.quantity)}</strong></div>
                   <button
                     type="button"
+                    aria-label={`Удалить товар ${index + 1}`}
+                    title="Удалить позицию"
                     onClick={(event) => {
                       event.stopPropagation();
                       removeItem(item.id);
@@ -437,7 +458,7 @@ export function CommercialDocumentsPage() {
           <label><span>Точка продаж</span><select value={storeHref} onChange={(event) => setStoreHref(event.target.value)}><option value="">Без точки продаж</option>{stores.map((store) => <option key={store.id} value={store.storeHref}>{store.name}</option>)}</select></label>
           <button type="button" onClick={submit} disabled={submitMutation.isPending}>
             <FileText size={18} />
-            {submitMutation.isPending ? "Создаю..." : "Создать PDF и заказ"}
+            {submitMutation.isPending ? "Создаю..." : "Создать счёт и заказ"}
           </button>
           <button type="button" onClick={printProposal} disabled={proposalMutation.isPending}>
             <Printer size={18} />
@@ -519,8 +540,7 @@ export function CommercialDocumentsPage() {
             </div>
 
             <div className={styles.modalActions}>
-              {result ? <button type="button" onClick={() => printPdf(result.blob, result.fileName)}><Printer size={17} /> Печать PDF</button> : null}
-              {result ? <button type="button" onClick={() => downloadBlob(result.blob, result.fileName)}><Download size={17} /> Скачать PDF</button> : null}
+              {result ? <button type="button" onClick={() => printDocument(result.blob)}><Printer size={17} /> Печать счёта</button> : null}
               {selectedOrder?.webUrl ? <a href={selectedOrder.webUrl} target="_blank" rel="noreferrer">Открыть заказ</a> : null}
               <button type="button" onClick={() => shipmentMutation.mutate()} disabled={shipmentMutation.isPending || Boolean(shipmentResult) || !selectedOrder || selectedOrder.unpaid > 0}>
                 <FileText size={17} />

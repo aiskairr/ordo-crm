@@ -436,6 +436,15 @@
   text-align: right;
 }
 
+.currencyHint {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .documentCard footer {
   display: flex;
   justify-content: space-between;
@@ -460,6 +469,12 @@
   color: var(--text);
   font-weight: 800;
   padding: 8px 10px;
+}
+
+.tableActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .mutedCell {
@@ -497,15 +512,6 @@
   text-align: center;
 }
 
-.receiptSheet {
-  width: 80mm;
-  padding: 4mm;
-  margin: 0 auto;
-  background: white;
-  color: black;
-  font-size: 11px;
-}
-
 .printPaymentSummary {
   margin: 0 0 14px;
   border: 1px solid #2f2f2f;
@@ -540,59 +546,6 @@
 
 .printPaymentList p:nth-child(3n) {
   border-right: 0;
-}
-
-.receiptCenter {
-  text-align: center;
-  font-weight: 700;
-}
-
-.receiptLine {
-  border-top: 1px dashed #000;
-  margin: 6px 0;
-}
-
-.receiptRow,
-.receiptItemCalc,
-.receiptTotal {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.receiptItems {
-  display: grid;
-  gap: 8px;
-}
-
-.receiptItemName {
-  font-weight: 600;
-}
-
-.receiptTotal {
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.receiptComment {
-  margin-top: 8px;
-  white-space: pre-wrap;
-}
-
-.receiptCount,
-.receiptThanks,
-.receiptCut {
-  text-align: center;
-}
-
-.receiptThanks {
-  margin-top: 6px;
-  font-weight: 700;
-}
-
-.receiptCut {
-  margin-top: 10px;
-  border-top: 1px dashed #000;
 }
 
 .waybillSummary {
@@ -638,6 +591,99 @@
   color: #111111 !important;
   font-weight: 800;
   text-align: center;
+}
+
+.returnOverlay {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 58%);
+  backdrop-filter: blur(5px);
+}
+
+.returnModal {
+  width: min(100%, 500px);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px rgb(15 23 42 / 28%);
+  padding: 24px;
+}
+
+.returnModal header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.returnModal header div {
+  display: grid;
+  gap: 5px;
+}
+
+.returnModal header strong {
+  color: var(--text);
+  font-size: 24px;
+}
+
+.returnModal header span,
+.returnModalSummary span {
+  color: var(--muted);
+}
+
+.returnModal header > button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.returnModalSummary {
+  display: grid;
+  gap: 6px;
+  margin: 22px 0;
+  border-radius: 18px;
+  background: #fff1f1;
+  padding: 18px;
+}
+
+.returnModalSummary strong {
+  color: #b42318;
+  font-size: 28px;
+}
+
+.returnModalActions {
+  display: grid;
+  gap: 10px;
+}
+
+.returnModalActions button {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+}
+
+.returnModalActions .returnDocumentButton {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
 }
 
 .empty {
@@ -770,11 +816,6 @@
   .waybillSheet p,
   .printSheet p {
     margin: 0 0 8px;
-  }
-
-  .receiptPrintReport {
-    width: 80mm;
-    margin: 0 auto;
   }
 
   @page {

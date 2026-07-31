@@ -431,8 +431,14 @@
 .table {
   display: grid;
   gap: 12px;
-  overflow: auto;
+  overflow: hidden;
   padding: 18px 20px;
+}
+
+.tableScroll {
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 
 .tableTitle {

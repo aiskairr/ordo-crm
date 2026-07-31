@@ -8,6 +8,7 @@ import type { Product } from "@/src/fsd/entities/product";
 import { StatusPanel } from "@/src/fsd/shared/ui/status";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
+import { printSalesReceipt, type SalesReceiptData } from "@/src/fsd/features/print-sales-receipt";
 import type { CurrentSalesUser, PaymentTypeOption, RetailStore, SalesConfig, SelectOption } from "@/src/fsd/pages/sales/api/sales-api";
 import { calculateSale, createOrder, getCustomers, getProducts } from "@/src/fsd/pages/sales/api/sales-api";
 import styles from "./sale-composer.module.css";
@@ -43,29 +44,51 @@ type CreatedOrderResult = {
     name?: string;
     type?: string;
     webUrl?: string;
+    moment?: string;
+  };
+  order?: {
+    moment?: string;
+    paid?: number;
+    unpaid?: number;
+    storeName?: string;
+    customerName?: string;
+    employeeName?: string;
   };
   calculation?: {
+    baseTotal?: number;
+    loyaltyRedemption?: number;
     finalTotal?: number;
+    prepaidTotal?: number;
     paymentLabel?: string;
     items?: Array<{
       productName?: string;
       name?: string;
+      productPrice?: number;
       quantity?: number;
+      lineTotal?: number;
       isGift?: boolean;
     }>;
   };
+  loyalty?: {
+    redeemed?: number;
+    accrued?: number;
+    balance?: number | null;
+  } | null;
+  telegramReceipt?: {
+    sent?: boolean;
+    error?: string;
+    photos?: number;
+  } | null;
+  delivery?: {
+    error?: string;
+  } | null;
 };
 
-type SuccessModalState = {
+type SuccessModalState = SalesReceiptData & {
   documentName: string;
   documentType: string;
   documentUrl: string;
-  finalTotal: number;
   paymentLabel: string;
-  customerName: string;
-  employeeName: string;
-  branchName: string;
-  items: Array<{ name: string; quantity: number; isGift: boolean }>;
 };
 
 type ConfirmModalState = {
@@ -94,6 +117,7 @@ type SalesDraft = {
   customerHref: string;
   customerName: string;
   customerPhone: string;
+  deliveryPhoneSecondary: string;
   customerAddress: string;
   deliveryEnabled: boolean;
   deliveryDate: string;
@@ -106,6 +130,7 @@ type SalesDraft = {
 
 const salesDraftKey = "ordo-crm:sales-draft-v2";
 const debtDraftKey = "ordo-crm:debt-sale-draft-v1";
+const maxReceiptPhotos = 10;
 const branches: Record<BranchKey, string> = {
   ayu: "Аю-Гранд",
   besh: "Беш-Сары",
@@ -128,6 +153,7 @@ const emptyDraft: SalesDraft = {
   customerHref: "",
   customerName: "",
   customerPhone: "",
+  deliveryPhoneSecondary: "",
   customerAddress: "",
   deliveryEnabled: false,
   deliveryDate: "",
@@ -161,82 +187,62 @@ function parseDraftMoney(value: string) {
   return Number(String(value || "").replace(/\s/g, "").replace(",", "."));
 }
 
-function printReceipt(state: SuccessModalState) {
-  const popup = window.open("", "_blank", "width=420,height=760");
-  if (!popup) throw new Error("Браузер заблокировал окно печати.");
-
-  const items = state.items
-    .map((item) => `<tr><td>${item.name}${item.isGift ? " (подарок)" : ""}</td><td style="text-align:right;">${item.quantity}</td></tr>`)
-    .join("");
-
-  popup.document.write(`
-    <!doctype html>
-    <html lang="ru">
-      <head>
-        <meta charset="utf-8" />
-        <title>Чек ${state.documentName}</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 20px; color: #111827; }
-          h1 { margin: 0 0 8px; font-size: 22px; }
-          .meta { margin: 0 0 16px; font-size: 13px; color: #4b5563; }
-          table { width: 100%; border-collapse: collapse; margin: 14px 0; }
-          td { padding: 6px 0; border-bottom: 1px dashed #d1d5db; vertical-align: top; font-size: 14px; }
-          .total { margin-top: 16px; font-size: 20px; font-weight: 700; }
-          .label { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; }
-        </style>
-      </head>
-      <body>
-        <div class="label">${state.documentType === "retaildemand" ? "Продажа" : "Отгрузка"}</div>
-        <h1>${state.documentName || "Документ"}</h1>
-        <div class="meta">
-          <div>Дата: ${new Date().toLocaleString("ru-RU")}</div>
-          <div>Филиал: ${state.branchName || "-"}</div>
-          <div>Сотрудник: ${state.employeeName || "-"}</div>
-          <div>Клиент: ${state.customerName || "Розничный покупатель"}</div>
-          <div>Оплата: ${state.paymentLabel || "-"}</div>
-        </div>
-        <table>
-          <tbody>${items}</tbody>
-        </table>
-        <div class="total">Итого: ${money(state.finalTotal)}</div>
-        <script>
-          window.onload = () => {
-            window.print();
-          };
-        </script>
-      </body>
-    </html>
-  `);
-  popup.document.close();
-}
-
 function normalizeCreatedOrderResult(
   payload: unknown,
   draft: SalesDraft,
   employeeName: string,
+  storeName: string,
 ): SuccessModalState {
   const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   const document = record.document && typeof record.document === "object" ? (record.document as Record<string, unknown>) : {};
+  const order = record.order && typeof record.order === "object" ? (record.order as Record<string, unknown>) : {};
   const calculation = record.calculation && typeof record.calculation === "object" ? (record.calculation as Record<string, unknown>) : {};
+  const loyalty = record.loyalty && typeof record.loyalty === "object" ? (record.loyalty as Record<string, unknown>) : {};
   const rawItems = Array.isArray(calculation.items) ? calculation.items : [];
+  const numberValue = (value: unknown) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  };
+  const documentName = typeof document.name === "string" ? document.name : "Без номера";
+  const finalTotal = numberValue(calculation.finalTotal);
+  const paidAmount = numberValue(order.paid ?? calculation.prepaidTotal);
+  const receiptItems = rawItems.map((item) => {
+    const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    return {
+      name: typeof row.productName === "string" ? row.productName : typeof row.name === "string" ? row.name : "Товар",
+      price: numberValue(row.productPrice),
+      quantity: numberValue(row.quantity) || 1,
+      lineTotal: numberValue(row.lineTotal),
+      isGift: row.isGift === true,
+    };
+  });
+  const calculatedBaseTotal = receiptItems.reduce((sum, item) => sum + (item.isGift ? 0 : item.lineTotal), 0);
 
   return {
-    documentName: typeof document.name === "string" ? document.name : "Без номера",
+    documentName,
+    documentNumber: documentName,
     documentType: typeof document.type === "string" ? document.type : "demand",
     documentUrl: typeof document.webUrl === "string" ? document.webUrl : "",
-    finalTotal: typeof calculation.finalTotal === "number" ? calculation.finalTotal : 0,
+    dateTime: typeof document.moment === "string"
+      ? document.moment
+      : typeof order.moment === "string"
+        ? order.moment
+        : new Date().toISOString(),
+    storeName: typeof order.storeName === "string" && order.storeName ? order.storeName : storeName,
+    employeeName: typeof order.employeeName === "string" && order.employeeName ? order.employeeName : employeeName,
+    customerName: typeof order.customerName === "string" && order.customerName
+      ? order.customerName
+      : draft.customerName || "Розничный покупатель",
+    baseTotal: numberValue(calculation.baseTotal) || calculatedBaseTotal,
+    loyaltyRedemption: numberValue(calculation.loyaltyRedemption || loyalty.redeemed),
+    finalTotal,
     paymentLabel: typeof calculation.paymentLabel === "string" ? calculation.paymentLabel : "",
-    customerName: draft.customerName || "Розничный покупатель",
-    employeeName,
-    branchName: branches[draft.branchKey],
-    items: rawItems.map((item) => {
-      const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-      return {
-        name: typeof row.productName === "string" ? row.productName : typeof row.name === "string" ? row.name : "Товар",
-        quantity: typeof row.quantity === "number" ? row.quantity : 1,
-        isGift: row.isGift === true,
-      };
-    }),
+    paymentType: typeof calculation.paymentLabel === "string" ? calculation.paymentLabel : "",
+    paidAmount,
+    unpaidAmount: numberValue(order.unpaid ?? Math.max(0, finalTotal - paidAmount)),
+    accruedBonuses: numberValue(loyalty.accrued),
+    bonusBalance: loyalty.balance == null ? null : numberValue(loyalty.balance),
+    items: receiptItems,
   };
 }
 
@@ -263,7 +269,7 @@ function isBankScenarioPaymentType(paymentType: PaymentTypeOption) {
 }
 
 function isMixedPaymentType(paymentType: PaymentTypeOption) {
-  return !isDebtPaymentType(paymentType) && !isCashOnlyPaymentType(paymentType);
+  return !isDebtPaymentType(paymentType);
 }
 
 function createPaymentPart(paymentTypeHref = "", amount = ""): PaymentPart {
@@ -320,6 +326,7 @@ function findCurrentEmployee(employees: SelectOption[], currentUser: CurrentSale
   const branches = new Set(currentUser.branches);
 
   return (
+    employees.find((employee) => Boolean(currentUser.moySkladEmployeeHref) && employee.href === currentUser.moySkladEmployeeHref) ??
     employees.find((employee) => employee.id === currentUser.id || employee.href === currentUser.id) ??
     employees.find((employee) => {
       const employeeName = normalizeLookup(employee.name);
@@ -412,7 +419,7 @@ export function SaleComposer({
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [calculation, setCalculation] = useState<Record<string, unknown> | null>(null);
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [successModal, setSuccessModal] = useState<SuccessModalState | null>(null);
@@ -479,17 +486,29 @@ export function SaleComposer({
       return;
     }
 
-    setReceiptFile(new File([blob], `receipt-${Date.now()}.jpg`, { type: "image/jpeg" }));
+    setReceiptFiles((current) => [
+      ...current,
+      new File([blob], `receipt-${Date.now()}.jpg`, { type: "image/jpeg" }),
+    ].slice(0, maxReceiptPhotos));
     stopCamera();
   };
 
-  const selectReceiptFile = (file?: File) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
+  const selectReceiptFiles = (files: File[]) => {
+    if (!files.length) return;
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    if (images.length !== files.length) {
       showToast({ tone: "error", title: "Нужна фотография", description: "Выберите изображение чека." });
-      return;
     }
-    setReceiptFile(file);
+    if (!images.length) return;
+    setReceiptFiles((current) => {
+      const known = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+      const unique = images.filter((file) => !known.has(`${file.name}:${file.size}:${file.lastModified}`));
+      const next = [...current, ...unique].slice(0, maxReceiptPhotos);
+      if (current.length + unique.length > maxReceiptPhotos) {
+        showToast({ tone: "error", title: "Слишком много чеков", description: `Можно прикрепить максимум ${maxReceiptPhotos} фотографий.` });
+      }
+      return next;
+    });
   };
 
   const selectedStore = retailStores.find((store) => store.id === draft.retailStoreHref || store.href === draft.retailStoreHref) ?? retailStores[0];
@@ -497,10 +516,14 @@ export function SaleComposer({
   const branchName = selectedStore?.name || branches[branchKey];
   const branchIds = branchIdsFromStore(selectedStore);
   const visibleEmployees = employees.filter((employee) => employeeMatchesBranches(employee, branchIds));
-  const selectedEmployee = visibleEmployees.find((employee) => employee.id === draft.employeeHref || employee.href === draft.employeeHref)
-    ?? findCurrentEmployee(visibleEmployees, currentUser)
-    ?? visibleEmployees[0]
-    ?? null;
+  const canChooseEmployee = currentUser?.role === "admin" || currentUser?.role === "owner";
+  const currentEmployee = findCurrentEmployee(visibleEmployees, currentUser);
+  const selectedEmployee = canChooseEmployee
+    ? visibleEmployees.find((employee) => employee.id === draft.employeeHref || employee.href === draft.employeeHref)
+      ?? currentEmployee
+      ?? visibleEmployees[0]
+      ?? null
+    : currentEmployee;
   const visibleTypes = visiblePaymentTypes(paymentTypes, draft.paymentScenario);
   const selectedPaymentType = paymentTypes.find((paymentType) => paymentType.id === draft.paymentTypeHref) ?? visibleTypes[0];
   const secondPaymentType = paymentTypes.find((paymentType) => paymentType.id === draft.secondPaymentTypeHref);
@@ -569,11 +592,35 @@ export function SaleComposer({
   const orderMutation = useMutation({
     mutationFn: createOrder,
     onSuccess: async (result) => {
-      setSuccessModal(normalizeCreatedOrderResult(result as CreatedOrderResult, draft, selectedEmployee?.name || currentUser?.name || ""));
-      showToast({ tone: "success", title: "Документ создан", description: "Продажа сохранена в МойСклад." });
+      const created = result as CreatedOrderResult;
+      setSuccessModal(normalizeCreatedOrderResult(
+        created,
+        draft,
+        selectedEmployee?.name || currentUser?.name || "",
+        selectedStore?.name || branches[draft.branchKey],
+      ));
+      showToast({
+        tone: "success",
+        title: "Документ создан",
+        description: created.telegramReceipt?.sent
+          ? created.telegramReceipt.photos
+            ? `Продажа сохранена в МойСклад, фотографии чеков отправлены в Telegram: ${created.telegramReceipt.photos}.`
+            : "Продажа сохранена в МойСклад, информация отправлена в Telegram."
+          : "Продажа сохранена в МойСклад.",
+      });
+      if (created.telegramReceipt?.sent === false) {
+        showToast({
+          tone: "error",
+          title: "Продажа не отправлена в Telegram",
+          description: created.telegramReceipt.error || "Telegram отклонил отправку сообщения.",
+        });
+      }
+      if (created.delivery?.error) {
+        showToast({ tone: "error", title: "Задача доставки не создана", description: created.delivery.error });
+      }
       setDraft(mode === "debt" ? { ...emptyDraft, paymentScenario: "debt", customerMode: "new" } : emptyDraft);
       setCalculation(null);
-      setReceiptFile(null);
+      setReceiptFiles([]);
       window.localStorage.removeItem(draftStorageKey);
       await queryClient.invalidateQueries({ queryKey: ["products"] });
       await queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -716,6 +763,7 @@ export function SaleComposer({
       enabled: draft.deliveryEnabled,
       scheduledAt: deliveryDateTime,
       address: draft.deliveryAddress.trim(),
+      customerPhoneSecondary: draft.deliveryPhoneSecondary.trim(),
       notes: draft.deliveryNotes.trim(),
       items: draft.deliveryEnabled
         ? draft.items.filter((item) => item.deliverySelected !== false).map((item) => ({ name: item.productName, code: item.productCode, quantity: item.quantity }))
@@ -747,7 +795,7 @@ export function SaleComposer({
         usedPaymentTypes.add(part.paymentTypeHref);
       }
     }
-    if (!receiptFile && !receiptPhotoOptional) throw new Error("Добавьте фотографию чека.");
+    if (!receiptFiles.length && !receiptPhotoOptional) throw new Error("Добавьте фотографию чека.");
     if (mode === "debt" && draft.customerMode === "retail") throw new Error("Для продажи в долг выберите нового или старого клиента.");
     if (draft.customerMode === "new" && (!draft.customerName.trim() || !draft.customerPhone.trim())) throw new Error("Введите имя и телефон клиента.");
     if (draft.customerMode === "existing" && !draft.customerHref) throw new Error("Выберите существующего клиента.");
@@ -761,7 +809,9 @@ export function SaleComposer({
       subtitle:
         mode === "debt"
           ? "Документ будет создан в МойСклад с фиксацией долга клиента."
-          : "CRM отправит документ в МойСклад, привяжет чек и выполнит связанные действия после сохранения.",
+          : receiptFiles.length
+            ? `CRM создаст документ и отправит в Telegram фотографий чеков: ${receiptFiles.length}.`
+            : "CRM создаст документ и отправит информацию о наличной продаже в Telegram.",
       total: Number(calculation?.finalTotal ?? baseTotal),
       customerName: draft.customerName.trim() || "Розничный покупатель",
       paymentLabel: String(calculation?.paymentLabel ?? selectedPaymentType?.name ?? draft.prepaymentMethodName ?? "-"),
@@ -774,7 +824,7 @@ export function SaleComposer({
 
     const finalPayload = {
       ...payload,
-      receiptPhoto: receiptFile ? await readReceiptPhoto(receiptFile) : undefined,
+      receiptPhotos: receiptFiles.length ? await Promise.all(receiptFiles.map(readReceiptPhoto)) : undefined,
       requestKey: crypto.randomUUID(),
     };
     orderMutation.mutate(finalPayload);
@@ -830,10 +880,10 @@ export function SaleComposer({
                 const nextBranchIds = branchIdsFromStore(nextStore);
                 const nextEmployees = employees.filter((employee) => employeeMatchesBranches(employee, nextBranchIds));
                 const currentEmployeeInNextBranch = nextEmployees.find((employee) => employee.id === draft.employeeHref || employee.href === draft.employeeHref);
-                const nextEmployee = currentEmployeeInNextBranch
-                  ?? findCurrentEmployee(nextEmployees, currentUser)
-                  ?? nextEmployees[0]
-                  ?? null;
+                const nextCurrentEmployee = findCurrentEmployee(nextEmployees, currentUser);
+                const nextEmployee = canChooseEmployee
+                  ? currentEmployeeInNextBranch ?? nextCurrentEmployee ?? nextEmployees[0] ?? null
+                  : nextCurrentEmployee;
                 setDraft((current) => ({
                   ...current,
                   retailStoreHref: event.target.value,
@@ -849,16 +899,23 @@ export function SaleComposer({
               ))}
             </select>
           </label>
-          <label>
-            Сотрудник
-            <select value={selectedEmployee?.id ?? selectedEmployee?.href ?? ""} onChange={(event) => updateDraft("employeeHref", event.target.value)}>
-              {visibleEmployees.length ? visibleEmployees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.name}
-                </option>
-              )) : <option value="">Нет сотрудников для этой точки</option>}
-            </select>
-          </label>
+          {canChooseEmployee ? (
+            <label>
+              Сотрудник
+              <select value={selectedEmployee?.id ?? selectedEmployee?.href ?? ""} onChange={(event) => updateDraft("employeeHref", event.target.value)}>
+                {visibleEmployees.length ? visibleEmployees.map((employee) => (
+                  <option key={employee.id} value={employee.id}>
+                    {employee.name}
+                  </option>
+                )) : <option value="">Нет сотрудников для этой точки</option>}
+              </select>
+            </label>
+          ) : (
+            <label>
+              Сотрудник
+              <input value={selectedEmployee?.name || currentUser?.name || ""} readOnly />
+            </label>
+          )}
           {salesChannels.length ? (
             <label>
               Канал продаж
@@ -1161,6 +1218,15 @@ export function SaleComposer({
               <input value={draft.deliveryAddress} onChange={(event) => updateDraft("deliveryAddress", event.target.value)} />
             </label>
             <label>
+              Доп. телефон
+              <input
+                type="tel"
+                value={draft.deliveryPhoneSecondary}
+                onChange={(event) => updateDraft("deliveryPhoneSecondary", event.target.value)}
+                placeholder="Второй номер для курьера"
+              />
+            </label>
+            <label>
               Комментарий
               <input value={draft.deliveryNotes} onChange={(event) => updateDraft("deliveryNotes", event.target.value)} />
             </label>
@@ -1199,8 +1265,8 @@ export function SaleComposer({
             <div>
               <strong>Фото чека</strong>
               <small>
-                {receiptFile
-                  ? receiptFile.name
+                {receiptFiles.length
+                  ? `Прикреплено фотографий: ${receiptFiles.length}`
                   : receiptPhotoOptional
                     ? draft.paymentScenario === "cash"
                       ? "Необязательно при оплате наличными"
@@ -1223,15 +1289,43 @@ export function SaleComposer({
               Выбрать
             </button>
           </div>
+          {receiptFiles.length ? (
+            <div className={styles.receiptFiles}>
+              {receiptFiles.map((file, index) => (
+                <div key={`${file.name}-${file.lastModified}-${index}`}>
+                  <span>{index + 1}. {file.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Удалить ${file.name}`}
+                    onClick={() => setReceiptFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {cameraError ? <small className={styles.receiptError}>{cameraError}</small> : null}
           <input
             ref={cameraInputRef}
             type="file"
             accept="image/*"
             capture="environment"
-            onChange={(event) => selectReceiptFile(event.target.files?.[0])}
+            onChange={(event) => {
+              selectReceiptFiles(Array.from(event.target.files || []));
+              event.currentTarget.value = "";
+            }}
           />
-          <input ref={galleryInputRef} type="file" accept="image/*" onChange={(event) => selectReceiptFile(event.target.files?.[0])} />
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(event) => {
+              selectReceiptFiles(Array.from(event.target.files || []));
+              event.currentTarget.value = "";
+            }}
+          />
         </section>
         <div className={styles.summaryActions}>
           <button type="button" onClick={runCalculation} disabled={!draft.items.length || calculateMutation.isPending}>
@@ -1378,7 +1472,7 @@ export function SaleComposer({
                 type="button"
                 onClick={() => {
                   try {
-                    printReceipt(successModal);
+                    printSalesReceipt(successModal);
                   } catch (error) {
                     showToast({ tone: "error", title: "Не удалось открыть печать", description: getErrorText(error) });
                   }
