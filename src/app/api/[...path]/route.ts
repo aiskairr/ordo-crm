@@ -13,6 +13,14 @@ import {
   SuperAdminConfigurationError,
   verifySuperAdminSessionToken,
 } from "../_lib/super-admin-auth";
+import { getSuperAdminOverview } from "../_lib/super-admin/overview";
+import {
+  createSystemAnnouncement,
+  deleteSystemAnnouncement,
+  getSystemAnnouncements,
+  SystemAnnouncementsStorageError,
+  updateSystemAnnouncement,
+} from "../_lib/system-announcements";
 import { renderTelegramSaleCard } from "../_lib/telegram-sale-card";
 
 export const runtime = "nodejs";
@@ -6271,6 +6279,56 @@ function getSuperAdminSession(request: NextRequest) {
   return verifySuperAdminSessionToken(request.cookies.get(SUPER_ADMIN_SESSION_COOKIE)?.value);
 }
 
+const SUPER_ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const SUPER_ADMIN_LOGIN_ATTEMPT_LIMIT = 5;
+const superAdminLoginAttempts = new Map<string, number[]>();
+
+function getSuperAdminClientKey(request: NextRequest) {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+function isSuperAdminLoginRateLimited(request: NextRequest) {
+  const key = getSuperAdminClientKey(request);
+  const threshold = Date.now() - SUPER_ADMIN_LOGIN_WINDOW_MS;
+  const attempts = (superAdminLoginAttempts.get(key) || []).filter((timestamp) => timestamp > threshold);
+  if (attempts.length) superAdminLoginAttempts.set(key, attempts);
+  else superAdminLoginAttempts.delete(key);
+  return attempts.length >= SUPER_ADMIN_LOGIN_ATTEMPT_LIMIT;
+}
+
+function recordSuperAdminLoginFailure(request: NextRequest) {
+  const key = getSuperAdminClientKey(request);
+  const attempts = superAdminLoginAttempts.get(key) || [];
+  superAdminLoginAttempts.set(key, [...attempts, Date.now()]);
+}
+
+function clearSuperAdminLoginFailures(request: NextRequest) {
+  superAdminLoginAttempts.delete(getSuperAdminClientKey(request));
+}
+
+function isTrustedSuperAdminPost(request: NextRequest) {
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite === "cross-site") return false;
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+
+  try {
+    const originUrl = new URL(origin);
+    if (originUrl.origin === request.nextUrl.origin) return true;
+
+    const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+    const requestHost = request.headers.get("host")?.trim();
+    const allowedHosts = new Set([forwardedHost, requestHost].filter((value): value is string => Boolean(value)));
+    if (!allowedHosts.has(originUrl.host)) return false;
+
+    const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    return !forwardedProtocol || originUrl.protocol === `${forwardedProtocol}:`;
+  } catch {
+    return false;
+  }
+}
+
 async function handleSuperAdmin(request: NextRequest, parts: string[]) {
   try {
     if (parts[1] === "session" && request.method === "GET") {
@@ -6283,7 +6341,40 @@ async function handleSuperAdmin(request: NextRequest, parts: string[]) {
       return response;
     }
 
+    if (parts[1] === "overview" && request.method === "GET") {
+      if (!getSuperAdminSession(request)) return error(401, "Требуется авторизация Super Admin.");
+      const response = json(await getSuperAdminOverview());
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
+
+    if (parts[1] === "news") {
+      if (!getSuperAdminSession(request)) return error(401, "Требуется авторизация Super Admin.");
+      if (request.method === "GET" && !parts[2]) {
+        const response = json({ announcements: await getSystemAnnouncements() });
+        response.headers.set("Cache-Control", "no-store");
+        return response;
+      }
+      if (!isTrustedSuperAdminPost(request)) return error(403, "Запрос отклонён.");
+      if (request.method === "POST" && !parts[2]) {
+        return json({ announcement: await createSystemAnnouncement(await body(request)) }, 201);
+      }
+      if (request.method === "PUT" && parts[2]) {
+        return json({ announcement: await updateSystemAnnouncement(parts[2], await body(request)) });
+      }
+      if (request.method === "DELETE" && parts[2]) {
+        await deleteSystemAnnouncement(parts[2]);
+        return json({ ok: true });
+      }
+    }
+
     if (parts[1] === "login" && request.method === "POST") {
+      if (!isTrustedSuperAdminPost(request)) return error(403, "Запрос отклонён.");
+      if (isSuperAdminLoginRateLimited(request)) {
+        const response = error(429, "Слишком много попыток входа. Повторите через 15 минут.");
+        response.headers.set("Retry-After", String(SUPER_ADMIN_LOGIN_WINDOW_MS / 1000));
+        return response;
+      }
       const payload = await body(request);
       const login = asString(payload.login).trim();
       const password = asString(payload.password);
@@ -6294,9 +6385,11 @@ async function handleSuperAdmin(request: NextRequest, parts: string[]) {
         return error(400, "Логин или пароль превышает допустимую длину.");
       }
       if (!authenticateSuperAdmin(login, password)) {
+        recordSuperAdminLoginFailure(request);
         return error(401, "Неверный логин или пароль.");
       }
 
+      clearSuperAdminLoginFailures(request);
       const token = createSuperAdminSessionToken();
       const session = verifySuperAdminSessionToken(token);
       const response = json({ authenticated: true, session });
@@ -6305,12 +6398,17 @@ async function handleSuperAdmin(request: NextRequest, parts: string[]) {
     }
 
     if (parts[1] === "logout" && request.method === "POST") {
+      if (!isTrustedSuperAdminPost(request)) return error(403, "Запрос отклонён.");
       const response = json({ ok: true });
       response.headers.set("Cache-Control", "no-store");
       return setSuperAdminCookie(response, "", 0);
     }
   } catch (caught) {
     if (caught instanceof SuperAdminConfigurationError) {
+      console.error("Super Admin configuration error:", caught.message);
+      return error(503, "Super Admin временно недоступен. Проверьте серверную конфигурацию.");
+    }
+    if (caught instanceof SystemAnnouncementsStorageError) {
       return error(503, caught.message);
     }
     throw caught;
@@ -6331,6 +6429,13 @@ async function handleCrm(request: NextRequest, parts: string[], data: AppData) {
   if (parts[1] === "session" && request.method === "GET") {
     const user = getUserByRequest(request, data);
     return json({ user: user ? publicUser(user) : null });
+  }
+  if (parts[1] === "news" && request.method === "GET") {
+    requireUser(request, data);
+    const announcements = await getSystemAnnouncements({ fallbackOnError: true });
+    const response = json({ announcements: announcements.filter((item) => item.published) });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
   }
   if (parts[1] === "login" && request.method === "POST") {
     const payload = await body(request);

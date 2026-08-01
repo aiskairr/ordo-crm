@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
 import { NAV_ITEMS } from "@/src/fsd/shared/config/navigation";
+import { SystemNews } from "@/src/fsd/features/system-news";
 import { getAttendanceStatus } from "@/src/fsd/pages/attendance/api/attendance-api";
 import { formatDuration } from "@/src/fsd/pages/attendance/model/attendance-model";
 import { getShellSession, getUiSettings, logoutCrm, saveUiSettings } from "../api/app-shell-api";
@@ -214,6 +215,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={styles.shell}>
+      {user ? <SystemNews userId={user.id} /> : null}
       <button className={styles.mobileToggle} onClick={() => setIsOpen((value) => !value)} aria-label="Открыть меню">
         <Menu size={18} />
       </button>

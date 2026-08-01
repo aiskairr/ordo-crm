@@ -6,23 +6,18 @@ import {
   type SuperAdminSession,
   verifySuperAdminSessionToken,
 } from "@/src/app/api/_lib/super-admin-auth";
-import { SuperAdminHome } from "@/src/fsd/pages/super-admin";
+import { SuperAdminShell } from "@/src/fsd/widgets/super-admin-shell";
 
-export default async function SuperAdminPage() {
+export default async function SuperAdminPanelLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const cookieStore = await cookies();
   let session: SuperAdminSession | null = null;
 
   try {
     session = verifySuperAdminSessionToken(cookieStore.get(SUPER_ADMIN_SESSION_COOKIE)?.value);
   } catch (caught) {
-    if (!(caught instanceof SuperAdminConfigurationError)) {
-      throw caught;
-    }
+    if (!(caught instanceof SuperAdminConfigurationError)) throw caught;
   }
 
-  if (session) {
-    return <SuperAdminHome session={session} />;
-  }
-
-  redirect("/super-admin/login");
+  if (!session) redirect("/super-admin/login");
+  return <SuperAdminShell session={session}>{children}</SuperAdminShell>;
 }

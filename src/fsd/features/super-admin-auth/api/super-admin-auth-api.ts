@@ -19,11 +19,7 @@ function normalizeSession(value: unknown): SuperAdminSession | null {
   const row = asRecord(value);
   const login = asString(row.login);
   const expiresAt = asString(row.expiresAt);
-  if (!login || !expiresAt) return null;
-  return {
-    login,
-    expiresAt,
-  };
+  return login && expiresAt ? { login, expiresAt } : null;
 }
 
 export async function getSuperAdminSession() {
@@ -46,7 +42,5 @@ export async function loginSuperAdmin(input: { login: string; password: string }
 }
 
 export async function logoutSuperAdmin() {
-  return apiClient<{ ok: boolean }>("/api/super-admin/logout", {
-    method: "POST",
-  });
+  return apiClient<{ ok: boolean }>("/api/super-admin/logout", { method: "POST" });
 }

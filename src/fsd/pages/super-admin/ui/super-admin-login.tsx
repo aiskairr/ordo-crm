@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { LockKeyhole, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import { useToast } from "@/src/fsd/shared/ui/toast";
-import { loginSuperAdmin } from "../api/super-admin-auth-api";
+import { loginSuperAdmin } from "@/src/fsd/features/super-admin-auth";
 import styles from "./super-admin-login.module.css";
 
 export function SuperAdminLogin() {
@@ -26,10 +27,17 @@ export function SuperAdminLogin() {
 
   return (
     <main className={styles.page}>
+      <section className={styles.presentation}>
+        <div className={styles.logo}><ShieldCheck size={25} /></div>
+        <p>ORDO CONTROL</p>
+        <h2>Управление системой начинается здесь.</h2>
+        <span>Отдельный защищённый контур владельца. Сессии и права сотрудников CRM в эту панель не переносятся.</span>
+        <div className={styles.security}><LockKeyhole size={17} /><span>Изолированная авторизация</span></div>
+      </section>
       <section className={styles.card}>
-        <p>ORDO CRM</p>
+        <p>Вход владельца</p>
         <h1>Super Admin</h1>
-        <span>Отдельный защищённый вход владельца системы. Учётные записи сотрудников CRM здесь не действуют.</span>
+        <span>Введите отдельные данные Super Admin из серверного окружения.</span>
 
         <form
           className={styles.form}
@@ -66,6 +74,7 @@ export function SuperAdminLogin() {
             {loginMutation.isPending ? "Проверяю..." : "Войти"}
           </button>
         </form>
+        <small className={styles.hint}>Доступ защищён HttpOnly-сессией. Пароль не сохраняется в браузере.</small>
       </section>
     </main>
   );

@@ -1,7 +1,8 @@
 "use client";
 
 import Script from "next/script";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 type TelegramWebApp = {
   platform?: string;
@@ -20,6 +21,15 @@ declare global {
 }
 
 export function TelegramMiniApp() {
+  const pathname = usePathname();
+  const isSuperAdmin = pathname.startsWith("/super-admin");
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    delete document.documentElement.dataset.telegramMiniApp;
+    document.documentElement.style.removeProperty("color-scheme");
+  }, [isSuperAdmin]);
+
   const initialize = useCallback(() => {
     const webApp = window.Telegram?.WebApp;
     if (!webApp || webApp.platform === "unknown") return;
@@ -37,6 +47,8 @@ export function TelegramMiniApp() {
     webApp.expand();
     webApp.ready();
   }, []);
+
+  if (isSuperAdmin) return null;
 
   return (
     <Script
