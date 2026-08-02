@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Camera, CreditCard, ImagePlus, PackagePlus, ReceiptText, Search, Truck, Trash2, UserRound, X } from "lucide-react";
+import { Camera, CreditCard, ImagePlus, LoaderCircle, PackagePlus, ReceiptText, Search, Truck, Trash2, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Customer } from "@/src/fsd/entities/customer";
 import type { Product } from "@/src/fsd/entities/product";
@@ -22,7 +22,7 @@ type OrderItem = {
   productName: string;
   assortmentHref: string;
   assortmentType: string;
-  productPrice: number;
+  productPrice: number | "";
   priceManual: boolean;
   productCost: number;
   productCode: string;
@@ -98,6 +98,13 @@ type ConfirmModalState = {
   customerName: string;
   paymentLabel: string;
   documentLabel: string;
+  items: Array<{
+    name: string;
+    quantity: number;
+    price: number;
+    lineTotal: number;
+    isGift: boolean;
+  }>;
 };
 
 type SalesDraft = {
@@ -424,6 +431,9 @@ export function SaleComposer({
   const [cameraError, setCameraError] = useState("");
   const [successModal, setSuccessModal] = useState<SuccessModalState | null>(null);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionLockRef = useRef(false);
+  const submissionRequestKeyRef = useRef<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -592,6 +602,8 @@ export function SaleComposer({
   const orderMutation = useMutation({
     mutationFn: createOrder,
     onSuccess: async (result) => {
+      submissionRequestKeyRef.current = null;
+      setConfirmModal(null);
       const created = result as CreatedOrderResult;
       setSuccessModal(normalizeCreatedOrderResult(
         created,
@@ -715,14 +727,15 @@ export function SaleComposer({
         if (item.localId !== localId) return item;
         if (field === "isGift") {
           const gift = Boolean(value);
+          const currentPrice = Number(item.productPrice) || 0;
           return {
             ...item,
             isGift: gift,
-            regularPrice: gift ? item.productPrice || item.regularPrice || 0 : item.regularPrice,
-            productPrice: gift ? 0 : item.regularPrice || item.productPrice,
+            regularPrice: gift ? currentPrice || item.regularPrice || 0 : item.regularPrice,
+            productPrice: gift ? 0 : item.regularPrice || currentPrice,
           };
         }
-        return { ...item, [field]: value };
+        return { ...item, [field]: value, ...(field === "productPrice" ? { priceManual: true } : {}) };
       }),
     }));
   };
@@ -781,6 +794,15 @@ export function SaleComposer({
 
   const validateBeforeSubmit = () => {
     if (!draft.items.length) throw new Error("Добавьте хотя бы один товар.");
+    for (const [index, item] of draft.items.entries()) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        throw new Error(`Проверьте количество в позиции ${index + 1} «${item.productName}».`);
+      }
+      const productPrice = Number(item.productPrice);
+      if (!item.isGift && (!Number.isFinite(productPrice) || productPrice <= 0)) {
+        throw new Error(`Проверьте цену за одну штуку в позиции ${index + 1} «${item.productName}».`);
+      }
+    }
     if (!selectedEmployee) throw new Error("Выберите сотрудника.");
     if (!selectedStore) throw new Error("Выберите точку продаж.");
     if (!selectedPaymentType) throw new Error("Выберите тип оплаты.");
@@ -810,27 +832,44 @@ export function SaleComposer({
         mode === "debt"
           ? "Документ будет создан в МойСклад с фиксацией долга клиента."
           : receiptFiles.length
-            ? `CRM создаст документ и отправит в Telegram фотографий чеков: ${receiptFiles.length}.`
-            : "CRM создаст документ и отправит информацию о наличной продаже в Telegram.",
+            ? ``
+            : "",
       total: Number(calculation?.finalTotal ?? baseTotal),
       customerName: draft.customerName.trim() || "Розничный покупатель",
       paymentLabel: String(calculation?.paymentLabel ?? selectedPaymentType?.name ?? draft.prepaymentMethodName ?? "-"),
       documentLabel: mode === "debt" ? "Отгрузка" : "Продажа",
+      items: draft.items.map((item) => ({
+        name: item.productName,
+        quantity: item.quantity,
+        price: Number(item.productPrice) || 0,
+        lineTotal: item.isGift ? 0 : (Number(item.productPrice) || 0) * item.quantity,
+        isGift: item.isGift,
+      })),
     });
   };
 
   const submitOrder = async () => {
     validateBeforeSubmit();
+    if (submissionLockRef.current) return;
 
-    const finalPayload = {
-      ...payload,
-      receiptPhotos: receiptFiles.length ? await Promise.all(receiptFiles.map(readReceiptPhoto)) : undefined,
-      requestKey: crypto.randomUUID(),
-    };
-    orderMutation.mutate(finalPayload);
+    submissionLockRef.current = true;
+    setIsSubmitting(true);
+
+    try {
+      submissionRequestKeyRef.current ||= crypto.randomUUID();
+      const finalPayload = {
+        ...payload,
+        receiptPhotos: receiptFiles.length ? await Promise.all(receiptFiles.map(readReceiptPhoto)) : undefined,
+        requestKey: submissionRequestKeyRef.current,
+      };
+      await orderMutation.mutateAsync(finalPayload);
+    } finally {
+      submissionLockRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
-  const baseTotal = draft.items.reduce((sum, item) => sum + item.productPrice * item.quantity, 0);
+  const baseTotal = draft.items.reduce((sum, item) => sum + (Number(item.productPrice) || 0) * item.quantity, 0);
   const finalTotal = Number(calculation?.finalTotal ?? baseTotal);
 
   useEffect(() => {
@@ -953,9 +992,52 @@ export function SaleComposer({
           <div className={styles.items}>
             {draft.items.map((item) => (
               <div key={item.localId} className={styles.itemRow}>
-                <strong>{item.productName}</strong>
-                <input type="number" min="1" value={item.quantity} onChange={(event) => updateItem(item.localId, "quantity", Number(event.target.value))} />
-                <input type="number" min="0" value={item.productPrice} disabled={item.isGift} onChange={(event) => updateItem(item.localId, "productPrice", Number(event.target.value))} />
+                <div className={styles.itemProduct}>
+                  <span>Товар</span>
+                  <strong>{item.productName}</strong>
+                  {item.productCode ? <small>Код: {item.productCode}</small> : null}
+                </div>
+                <label className={styles.itemNumberField}>
+                  <span>Количество, шт.</span>
+                  <div>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      aria-label={`Количество товара ${item.productName}, штук`}
+                      value={item.quantity}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => updateItem(item.localId, "quantity", Number(event.target.value))}
+                    />
+                    <b>шт.</b>
+                  </div>
+                </label>
+                <label className={styles.itemNumberField}>
+                  <span>Цена за 1 шт., сом</span>
+                  <div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      aria-label={`Цена за одну штуку товара ${item.productName}, сом`}
+                      value={item.productPrice}
+                      disabled={item.isGift}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(event) => updateItem(
+                        item.localId,
+                        "productPrice",
+                        event.target.value === "" ? "" : Number(event.target.value),
+                      )}
+                    />
+                    <b>сом</b>
+                  </div>
+                </label>
+                <div className={styles.itemLineTotal}>
+                  <span>Сумма позиции</span>
+                  <strong>{item.isGift ? "Подарок" : money((Number(item.productPrice) || 0) * item.quantity)}</strong>
+                </div>
                 <label className={styles.gift}>
                   <input type="checkbox" checked={item.isGift} onChange={(event) => updateItem(item.localId, "isGift", event.target.checked)} />
                   Подарок
@@ -1341,18 +1423,19 @@ export function SaleComposer({
                 showToast({ tone: "error", title: "Проверьте продажу", description: getErrorText(error) });
               }
             }}
-            disabled={orderMutation.isPending}
+            disabled={orderMutation.isPending || isSubmitting}
           >
-            {orderMutation.isPending ? "Создаю..." : mode === "debt" ? "Создать отгрузку" : "Создать документ"}
+            {orderMutation.isPending || isSubmitting ? "Создаю..." : mode === "debt" ? "Создать отгрузку" : "Создать документ"}
           </button>
         </div>
       </aside>
       {confirmModal ? (
-        <div className={styles.confirmOverlay} role="presentation" onMouseDown={() => setConfirmModal(null)}>
+        <div className={styles.confirmOverlay} role="presentation" onMouseDown={() => !isSubmitting && setConfirmModal(null)}>
           <section
             className={styles.confirmModal}
             role="dialog"
             aria-modal="true"
+            aria-busy={isSubmitting}
             aria-labelledby="sale-confirm-title"
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -1361,7 +1444,7 @@ export function SaleComposer({
                 <strong id="sale-confirm-title">{confirmModal.title}</strong>
                 <span>{confirmModal.subtitle}</span>
               </div>
-              <button type="button" aria-label="Закрыть окно подтверждения" onClick={() => setConfirmModal(null)}>
+              <button type="button" aria-label="Закрыть окно подтверждения" onClick={() => setConfirmModal(null)} disabled={isSubmitting}>
                 <X size={18} />
               </button>
             </header>
@@ -1383,18 +1466,34 @@ export function SaleComposer({
                 <strong>{confirmModal.paymentLabel}</strong>
               </article>
             </div>
+            <section className={styles.confirmItems}>
+              <div className={styles.confirmItemsHead}>
+                <strong>Ещё раз проверьте товары</strong>
+                <span>Особенно количество и цену за одну штуку</span>
+              </div>
+              {confirmModal.items.map((item, index) => (
+                <article key={`${item.name}-${index}`}>
+                  <strong>{index + 1}. {item.name}</strong>
+                  <div>
+                    <span>Количество <b>{new Intl.NumberFormat("ru-RU").format(item.quantity)} шт.</b></span>
+                    <span>Цена за 1 шт. <b>{item.isGift ? "Подарок" : money(item.price)}</b></span>
+                    <span>Сумма <b>{money(item.lineTotal)}</b></span>
+                  </div>
+                </article>
+              ))}
+            </section>
             <div className={styles.confirmActions}>
-              <button type="button" onClick={() => setConfirmModal(null)}>
+              <button type="button" onClick={() => setConfirmModal(null)} disabled={isSubmitting}>
                 Отмена
               </button>
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => {
-                  setConfirmModal(null);
                   submitOrder().catch((error) => showToast({ tone: "error", title: "Проверьте продажу", description: getErrorText(error) }));
                 }}
               >
-                {mode === "debt" ? "Создать отгрузку" : "Создать документ"}
+                {isSubmitting ? <><LoaderCircle className={styles.submitSpinner} size={18} />Создаю документ…</> : mode === "debt" ? "Создать отгрузку" : "Создать документ"}
               </button>
             </div>
           </section>

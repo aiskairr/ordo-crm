@@ -259,6 +259,8 @@ const SALES_REPORT_CACHE_TTL_MS = 60_000;
 
 const productStockCache = new Map<string, { value: number; createdAt: number }>();
 const salesReportCache = new Map<string, { value: { rows: Array<Record<string, unknown>>; canViewProfit: boolean; totals?: JsonRecord; dateFrom?: string; dateTo?: string }; createdAt: number }>();
+const SALE_REQUEST_CACHE_TTL_MS = 10 * 60 * 1000;
+const saleRequestCache = new Map<string, { createdAt: number; result: Promise<unknown> }>();
 
 type ReconciliationDocument = ReturnType<typeof mapMoySkladReconciliationDocument>;
 type ReconciliationDebtorAggregate = {
@@ -6919,50 +6921,72 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     if (root === "orders" && request.method === "POST") {
       const user = requireUser(request, data);
       const payload = await enforceSaleEmployee(await body(request), user);
-      const calculation = calculateDraft(payload);
-      const document = await createMoySkladDocument(calculation, payload);
-      const loyalty = await applyLoyaltySafely(calculation, payload, document);
-      const fiscalization = document.type === "retaildemand"
-        ? await triggerRetailFiscalizationSafely(document)
-        : { attempted: false, skipped: true, reason: "Документ не является розничной продажей." };
-      const telegramReceipt = await sendTelegramReceiptSafely(calculation, payload, document);
-      const order = orderFromDraft({ ...payload, documentType: document.type }, data);
-      order.id = asString(document.id, order.id);
-      order.name = asString(document.name, order.name);
-      order.type = document.type === "demand" ? "demand" : "retaildemand";
-      data.orders.unshift(order);
-      await writeData(data);
-      const deliveryInput = asRecord(payload.delivery);
-      let delivery: Delivery | { error: string } | null = null;
-      if (deliveryInput.enabled === true) {
-        try {
-          delivery = await createDeliveryRecord({
-            documentId: document.id,
-            documentType: document.type,
-            documentName: document.name,
-            documentUrl: document.webUrl,
-            branchName: payload.branchName ?? payload.retailStoreName,
-            customerName: payload.customerName,
-            customerPhone: payload.customerPhone,
-            customerPhoneSecondary: deliveryInput.customerPhoneSecondary,
-            address: deliveryInput.address,
-            scheduledAt: deliveryInput.scheduledAt,
-            employeeName: payload.employeeName,
-            items: deliveryInput.items,
-            notes: deliveryInput.notes,
-            amount: calculation.finalTotal,
-          }, user, data);
-        } catch (caught) {
-          delivery = {
-            error: caught instanceof Response
-              ? await caught.text()
-              : caught instanceof Error
-                ? caught.message
-                : "Не удалось создать задачу доставки.",
-          };
-        }
+      const requestKey = asString(payload.requestKey).trim();
+      if (requestKey && (requestKey.length < 8 || requestKey.length > 100)) {
+        return error(400, "Некорректный ключ запроса продажи.");
       }
-      return json({ ok: true, order, document, calculation, loyalty, fiscalization, telegramReceipt, delivery }, 201);
+      const cacheKey = requestKey ? `${user.id}:${requestKey}` : "";
+      const expirationThreshold = Date.now() - SALE_REQUEST_CACHE_TTL_MS;
+      for (const [key, entry] of saleRequestCache) {
+        if (entry.createdAt < expirationThreshold) saleRequestCache.delete(key);
+      }
+      const existingRequest = cacheKey ? saleRequestCache.get(cacheKey) : null;
+      if (existingRequest) return json(await existingRequest.result, 201);
+
+      const creation = (async () => {
+        const calculation = calculateDraft(payload);
+        const document = await createMoySkladDocument(calculation, payload);
+        const loyalty = await applyLoyaltySafely(calculation, payload, document);
+        const fiscalization = document.type === "retaildemand"
+          ? await triggerRetailFiscalizationSafely(document)
+          : { attempted: false, skipped: true, reason: "Документ не является розничной продажей." };
+        const telegramReceipt = await sendTelegramReceiptSafely(calculation, payload, document);
+        const order = orderFromDraft({ ...payload, documentType: document.type }, data);
+        order.id = asString(document.id, order.id);
+        order.name = asString(document.name, order.name);
+        order.type = document.type === "demand" ? "demand" : "retaildemand";
+        data.orders.unshift(order);
+        await writeData(data);
+        const deliveryInput = asRecord(payload.delivery);
+        let delivery: Delivery | { error: string } | null = null;
+        if (deliveryInput.enabled === true) {
+          try {
+            delivery = await createDeliveryRecord({
+              documentId: document.id,
+              documentType: document.type,
+              documentName: document.name,
+              documentUrl: document.webUrl,
+              branchName: payload.branchName ?? payload.retailStoreName,
+              customerName: payload.customerName,
+              customerPhone: payload.customerPhone,
+              customerPhoneSecondary: deliveryInput.customerPhoneSecondary,
+              address: deliveryInput.address,
+              scheduledAt: deliveryInput.scheduledAt,
+              employeeName: payload.employeeName,
+              items: deliveryInput.items,
+              notes: deliveryInput.notes,
+              amount: calculation.finalTotal,
+            }, user, data);
+          } catch (caught) {
+            delivery = {
+              error: caught instanceof Response
+                ? await caught.text()
+                : caught instanceof Error
+                  ? caught.message
+                  : "Не удалось создать задачу доставки.",
+            };
+          }
+        }
+        return { ok: true, order, document, calculation, loyalty, fiscalization, telegramReceipt, delivery };
+      })();
+
+      if (cacheKey) saleRequestCache.set(cacheKey, { createdAt: Date.now(), result: creation });
+      try {
+        return json(await creation, 201);
+      } catch (caught) {
+        if (cacheKey) saleRequestCache.delete(cacheKey);
+        throw caught;
+      }
     }
     if (root === "reports" && parts[1] === "sales" && parts[2] === "price" && request.method === "PATCH") {
       const user = requireUser(request, data);
