@@ -1,12 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Download, Landmark } from "lucide-react";
+import { Download, Landmark, Pencil, Plus, X } from "lucide-react";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
-import { getBankCommissions } from "../api/bank-commissions-api";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
+import {
+  createPaymentType,
+  getBankCommissions,
+  getBankCommissionSession,
+  getPaymentTypeDirectory,
+  updatePaymentType,
+} from "../api/bank-commissions-api";
 import styles from "./bank-commissions-page.module.css";
 
 type Period = "today" | "yesterday" | "week" | "2weeks" | "month" | "year" | "all" | "custom";
@@ -49,6 +56,7 @@ function formatDateTime(value: string) {
 
 export function BankCommissionsPage() {
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
   const initial = useMemo(() => getPeriodRange("month"), []);
   const [period, setPeriod] = useState<Period>("month");
   const [dateFrom, setDateFrom] = useState(initial.dateFrom);
@@ -56,10 +64,36 @@ export function BankCommissionsPage() {
   const [bank, setBank] = useState("");
   const [paymentType, setPaymentType] = useState("");
   const [selectedPaymentType, setSelectedPaymentType] = useState("");
+  const [editor, setEditor] = useState<{ id: string; name: string; ratePercent: number } | null>(null);
+
+  const sessionQuery = useQuery({
+    queryKey: ["bank-commission-session"],
+    queryFn: getBankCommissionSession,
+  });
+  const paymentTypesQuery = useQuery({ queryKey: ["bank-payment-types"], queryFn: getPaymentTypeDirectory });
+  const canManagePaymentTypes = ["admin", "owner"].includes(sessionQuery.data?.role ?? "");
 
   const reportQuery = useQuery({
     queryKey: ["bank-commissions", dateFrom, dateTo, bank, paymentType],
     queryFn: () => getBankCommissions({ dateFrom, dateTo, bank, paymentType }),
+  });
+
+  const savePaymentTypeMutation = useMutation({
+    mutationFn: async (input: { id: string; name: string; ratePercent: number }) => {
+      const payload = { name: input.name.trim(), ratePercent: input.ratePercent };
+      if (!payload.name) throw new Error("Укажите название вида оплаты.");
+      return input.id ? updatePaymentType(input.id, payload) : createPaymentType(payload);
+    },
+    onSuccess: async (saved) => {
+      setEditor(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["bank-payment-types"] }),
+        queryClient.invalidateQueries({ queryKey: ["payment-types"] }),
+        queryClient.invalidateQueries({ queryKey: ["bank-commissions"] }),
+      ]);
+      showToast({ tone: "success", title: "Ставка сохранена", description: `${saved.name}: ${percent(saved.ratePercent)}` });
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось сохранить ставку", description: getErrorText(error) }),
   });
 
   const report = reportQuery.data;
@@ -74,6 +108,12 @@ export function BankCommissionsPage() {
       showToast({ tone: "error", title: "Не удалось загрузить комиссии", description: getErrorText(reportQuery.error) });
     }
   }, [reportQuery.error, showToast]);
+
+  useEffect(() => {
+    if (paymentTypesQuery.error && canManagePaymentTypes) {
+      showToast({ tone: "error", title: "Не удалось загрузить виды оплат", description: getErrorText(paymentTypesQuery.error) });
+    }
+  }, [canManagePaymentTypes, paymentTypesQuery.error, showToast]);
 
   const setFastPeriod = (next: Period) => {
     const range = getPeriodRange(next);
@@ -143,6 +183,35 @@ export function BankCommissionsPage() {
           <a href={`/api/reports/bank-commissions/export.pdf?${exportParams.toString()}`}><Download size={16} /> PDF</a>
         </div>
       </form>
+
+      {canManagePaymentTypes ? (
+        <section className={`${styles.panel} ${styles.directoryPanel}`}>
+          <div className={styles.panelHead}>
+            <div>
+              <h2>Виды оплат и ставки</h2>
+              <p>Данные сохраняются прямо в справочник МойСклад.</p>
+            </div>
+            <button className={styles.primaryButton} type="button" onClick={() => setEditor({ id: "", name: "", ratePercent: 0 })}>
+              <Plus size={18} /> Новый банк
+            </button>
+          </div>
+          {paymentTypesQuery.isLoading ? <div className={styles.directoryLoading}>Загружаю виды оплат...</div> : (
+            <div className={styles.directoryGrid}>
+              {(paymentTypesQuery.data ?? []).map((item) => (
+                <article key={item.id}>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>Комиссия {percent(item.ratePercent)}</span>
+                  </div>
+                  <button type="button" aria-label={`Редактировать ${item.name}`} onClick={() => setEditor({ id: item.id, name: item.name, ratePercent: item.ratePercent })}>
+                    <Pencil size={17} /> Изменить
+                  </button>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section className={styles.kpis}>
         {kpis.map(([label, value], index) => (
@@ -218,6 +287,42 @@ export function BankCommissionsPage() {
           </table>
         </div>
       </section>
+
+
+      {editor ? (
+        <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !savePaymentTypeMutation.isPending) setEditor(null);
+        }}>
+          <form className={styles.editorModal} onSubmit={(event) => {
+            event.preventDefault();
+            savePaymentTypeMutation.mutate(editor);
+          }}>
+            <div className={styles.editorHead}>
+              <div>
+                <span>{editor.id ? "Редактирование" : "Новый вид оплаты"}</span>
+                <h2>{editor.id ? editor.name : "Добавить банк"}</h2>
+              </div>
+              <button type="button" aria-label="Закрыть" disabled={savePaymentTypeMutation.isPending} onClick={() => setEditor(null)}><X size={20} /></button>
+            </div>
+            <label>
+              <span>Название вида оплаты</span>
+              <input autoFocus value={editor.name} onChange={(event) => setEditor({ ...editor, name: event.target.value })} placeholder="Например: Банк Азии (3 мес)" required />
+            </label>
+            <label>
+              <span>Комиссия банка, %</span>
+              <div className={styles.rateInput}>
+                <ClearableNumberInput min="0" max="100" step="0.01" value={editor.ratePercent} onValueChange={(ratePercent) => setEditor({ ...editor, ratePercent })} />
+                <b>%</b>
+              </div>
+            </label>
+            <p className={styles.editorHint}>Например, для комиссии 5% укажите число 5. Новая ставка применяется к следующим расчётам и пересчёту отчётности.</p>
+            <div className={styles.editorActions}>
+              <button type="button" disabled={savePaymentTypeMutation.isPending} onClick={() => setEditor(null)}>Отмена</button>
+              <button type="submit" disabled={savePaymentTypeMutation.isPending}>{savePaymentTypeMutation.isPending ? "Сохраняю..." : "Сохранить в МойСклад"}</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </section>
   );
 }

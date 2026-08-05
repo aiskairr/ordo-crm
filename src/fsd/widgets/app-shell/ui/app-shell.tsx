@@ -22,12 +22,17 @@ import {
   UserCog,
   WalletCards,
   Shield,
+  RefreshCw,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
 import { NAV_ITEMS } from "@/src/fsd/shared/config/navigation";
 import { SystemNews } from "@/src/fsd/features/system-news";
-import { getAttendanceStatus } from "@/src/fsd/pages/attendance/api/attendance-api";
-import { formatDuration } from "@/src/fsd/pages/attendance/model/attendance-model";
+import { MoySkladRequestMonitor } from "@/src/fsd/features/moysklad-request-monitor";
+import { AttendanceSelfieButton } from "@/src/fsd/features/attendance-selfie";
+import { getAttendanceNetworkStatus, getAttendanceStatus, openAttendanceShift } from "@/src/fsd/pages/attendance/api/attendance-api";
+import { formatDuration, isAttendanceRequiredForUser } from "@/src/fsd/pages/attendance/model/attendance-model";
 import { getShellSession, getUiSettings, logoutCrm, saveUiSettings } from "../api/app-shell-api";
 import {
   defaultUiSettings,
@@ -122,11 +127,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [settingsDraft, setSettingsDraft] = useState<UiSettings>(() => readLocalUiSettings());
 
   const sessionQuery = useQuery({ queryKey: ["crm-session"], queryFn: getShellSession });
+  const user = sessionQuery.data?.user ?? null;
+  const attendanceRequired = isAttendanceRequiredForUser(user);
   const settingsQuery = useQuery({ queryKey: ["crm-ui-settings"], queryFn: getUiSettings });
   const attendanceStatusQuery = useQuery({
     queryKey: ["attendance-status"],
     queryFn: getAttendanceStatus,
     enabled: Boolean(sessionQuery.data?.user),
+  });
+  const attendanceNetworkQuery = useQuery({
+    queryKey: ["attendance-network-status"],
+    queryFn: getAttendanceNetworkStatus,
+    enabled: Boolean(user && attendanceRequired && attendanceStatusQuery.data?.dayStatus?.workingDay !== false && attendanceStatusQuery.data?.status !== "working"),
+    refetchOnWindowFocus: true,
+    staleTime: 10_000,
   });
 
   const logoutMutation = useMutation({
@@ -149,11 +163,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     },
   });
 
-  const user = sessionQuery.data?.user ?? null;
+  const attendanceOpenMutation = useMutation({
+    mutationFn: openAttendanceShift,
+    onSuccess: async (result) => {
+      queryClient.setQueryData(["attendance-status"], (current: ReturnType<typeof getAttendanceStatus> extends Promise<infer Status> ? Status | undefined : never) => ({
+        ...current!,
+        status: "working",
+        openRecord: result.record,
+        now: new Date().toISOString(),
+      }));
+      await queryClient.invalidateQueries({ queryKey: ["attendance-report"] });
+    },
+    onError: async () => {
+      await attendanceNetworkQuery.refetch();
+    },
+  });
+
   const displayName = user?.name || user?.login || "Пользователь CRM";
   const roleName = user ? ROLE_LABELS[user.role] : "cookie-сессия";
   const initials = useMemo(() => getInitials(displayName), [displayName]);
   const attendanceWorking = attendanceStatusQuery.data?.status === "working";
+  const attendanceDayOff = attendanceStatusQuery.data?.dayStatus?.workingDay === false;
+  const attendanceGateVisible = Boolean(user && attendanceRequired && !attendanceWorking && !attendanceDayOff);
   const workMinutes = useWorkTimer(attendanceWorking ? attendanceStatusQuery.data?.openRecord?.checkInTime : undefined);
   const visibleNavItems = useMemo(
     () =>
@@ -216,6 +247,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className={styles.shell}>
       {user ? <SystemNews userId={user.id} /> : null}
+      {attendanceGateVisible ? (
+        <div className={styles.attendanceGateBackdrop} role="presentation">
+          <section className={styles.attendanceGate} role="dialog" aria-modal="true" aria-labelledby="attendance-gate-title">
+            <div className={`${styles.attendanceGateIcon} ${attendanceNetworkQuery.data?.allowed ? styles.attendanceGateAllowed : ""}`}>
+              {attendanceNetworkQuery.data?.allowed ? <Wifi size={34} /> : <WifiOff size={34} />}
+            </div>
+            <span>Посещаемость</span>
+            <h2 id="attendance-gate-title">
+              {attendanceStatusQuery.isLoading || attendanceNetworkQuery.isLoading
+                ? "Проверяем офисный Wi‑Fi…"
+                : attendanceNetworkQuery.data?.allowed
+                  ? "Откройте рабочую смену"
+                  : "Подключитесь к офисному Wi‑Fi"}
+            </h2>
+            <p>{attendanceNetworkQuery.data?.message || "Для входа в CRM необходимо подтвердить офисную сеть и открыть смену."}</p>
+            {attendanceNetworkQuery.data?.branchName ? <strong>{attendanceNetworkQuery.data.branchName} · IP {attendanceNetworkQuery.data.clientIp}</strong> : null}
+            {attendanceOpenMutation.error ? <div className={styles.attendanceGateError}>{String((attendanceOpenMutation.error as Error)?.message || "Не удалось открыть смену.")}</div> : null}
+            <div className={styles.attendanceGateActions}>
+              <button type="button" className={styles.attendanceGateSecondary} onClick={() => attendanceNetworkQuery.refetch()} disabled={attendanceNetworkQuery.isFetching}>
+                <RefreshCw size={18} />
+                {attendanceNetworkQuery.isFetching ? "Проверяем…" : "Проверить Wi‑Fi"}
+              </button>
+              <AttendanceSelfieButton
+                action="open"
+                disabled={!attendanceNetworkQuery.data?.allowed}
+                pending={attendanceOpenMutation.isPending}
+                onCapture={(selfie) => attendanceOpenMutation.mutate(selfie)}
+              />
+            </div>
+            <button type="button" className={styles.attendanceGateLogout} onClick={() => logoutMutation.mutate()} disabled={logoutMutation.isPending}>
+              Выйти из аккаунта
+            </button>
+          </section>
+        </div>
+      ) : null}
       <button className={styles.mobileToggle} onClick={() => setIsOpen((value) => !value)} aria-label="Открыть меню">
         <Menu size={18} />
       </button>
@@ -276,6 +342,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span>{displayName}</span>
             <small>{roleName}</small>
           </div>
+          <Link
+            href="/attendance"
+            className={`${styles.userAction} ${styles.attendanceAction}`}
+            title={attendanceWorking ? `Смена открыта: ${formatDuration(workMinutes)}` : attendanceDayOff ? attendanceStatusQuery.data?.dayStatus.label : "Открыть смену"}
+            onClick={() => setIsOpen(false)}
+          >
+            <Clock3 size={16} />
+            <span>{attendanceWorking ? `На работе · ${formatDuration(workMinutes)}` : attendanceDayOff ? `${attendanceStatusQuery.data?.dayStatus.code} · ${attendanceStatusQuery.data?.dayStatus.label}` : "Открыть смену"}</span>
+          </Link>
           <button
             className={`${styles.userAction} ${styles.settingsAction}`}
             type="button"
@@ -311,6 +386,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </section>
         )}
       </main>
+
+      {user && (user.role === "admin" || user.role === "owner") ? <MoySkladRequestMonitor /> : null}
 
       {settingsOpen ? (
         <div className={styles.modalBackdrop} role="presentation" onMouseDown={() => setSettingsOpen(false)}>

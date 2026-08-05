@@ -1,0 +1,130 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: rgba(4, 9, 22, 0.86);
+  backdrop-filter: blur(14px);
+  padding: 18px;
+}
+
+.dialog {
+  display: grid;
+  width: min(520px, 100%);
+  max-height: calc(100dvh - 36px);
+  gap: 16px;
+  overflow: auto;
+  border: 2px solid var(--border-strong);
+  border-radius: 26px;
+  background: var(--panel);
+  box-shadow: 0 34px 100px rgba(0, 0, 0, 0.42);
+  padding: 22px;
+}
+
+.dialog header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.dialog header span {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dialog h2,
+.dialog p { margin: 0; }
+.dialog h2 { margin-top: 5px; font-size: 28px; }
+.dialog p { margin-top: 7px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+.closeButton {
+  display: grid;
+  width: 42px;
+  min-height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--panel-muted);
+  color: var(--text);
+}
+
+.cameraFrame {
+  position: relative;
+  display: grid;
+  min-height: min(520px, 58dvh);
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid var(--border-strong);
+  border-radius: 22px;
+  background: #080d19;
+  color: #ffffff;
+}
+
+.cameraFrame video {
+  width: 100%;
+  height: 100%;
+  min-height: min(520px, 58dvh);
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.cameraFrame > span { position: absolute; font-weight: 800; }
+
+.faceGuide {
+  position: absolute;
+  width: min(60%, 250px);
+  aspect-ratio: 0.76;
+  border: 3px solid rgba(255, 255, 255, 0.82);
+  border-radius: 48%;
+  box-shadow: 0 0 0 999px rgba(4, 9, 22, 0.18);
+  pointer-events: none;
+}
+
+.error {
+  border: 2px solid rgba(225, 29, 72, 0.45);
+  border-radius: 13px;
+  background: rgba(225, 29, 72, 0.09);
+  color: #be123c;
+  padding: 11px 13px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog footer button {
+  display: inline-flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px solid var(--primary);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  color: #ffffff;
+  padding: 0 18px;
+  font-weight: 900;
+}
+
+.secondaryButton {
+  border-color: var(--border-strong) !important;
+  background: var(--panel-muted) !important;
+  color: var(--text) !important;
+}
+
+@media (max-width: 560px) {
+  .dialog { padding: 16px; border-radius: 22px; }
+  .dialog footer { display: grid; grid-template-columns: 1fr; }
+  .cameraFrame, .cameraFrame video { min-height: 50dvh; }
+}

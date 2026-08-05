@@ -156,6 +156,7 @@
 
 .panelHead {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -163,6 +164,212 @@
 .panelHead h2,
 .panelHead p {
   margin: 0;
+}
+
+.panelHead > div {
+  display: grid;
+  gap: 4px;
+}
+
+.primaryButton,
+.directoryGrid button,
+.editorHead button,
+.editorActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 0 14px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.primaryButton {
+  background: linear-gradient(135deg, #0f2a69, #2563eb);
+  color: #fff;
+}
+
+.directoryPanel {
+  gap: 18px;
+}
+
+.directoryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.directoryGrid article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid rgba(36, 50, 74, 0.14);
+  border-radius: 15px;
+  background: #f8fafc;
+  padding: 13px;
+}
+
+.directoryGrid article > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.directoryGrid strong {
+  overflow: hidden;
+  color: #182033;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directoryGrid span,
+.directoryLoading {
+  color: #697386;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.directoryGrid button {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.directoryLoading {
+  padding: 18px 0;
+}
+
+.modalBackdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: rgba(8, 13, 29, 0.58);
+  padding: 20px;
+  backdrop-filter: blur(6px);
+}
+
+.editorModal {
+  display: grid;
+  width: min(100%, 520px);
+  gap: 18px;
+  border: 1px solid rgba(36, 50, 74, 0.16);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 30px 90px rgba(8, 13, 29, 0.28);
+  padding: 22px;
+}
+
+.editorHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.editorHead span {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.editorHead h2 {
+  margin: 5px 0 0;
+  color: #182033;
+}
+
+.editorHead button {
+  width: 42px;
+  padding: 0;
+  border-color: rgba(36, 50, 74, 0.12);
+  background: #f8fafc;
+  color: #182033;
+}
+
+.editorModal label {
+  display: grid;
+  gap: 7px;
+  color: #526071;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.editorModal input {
+  width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  border: 1px solid rgba(36, 50, 74, 0.18);
+  border-radius: 13px;
+  background: #fff;
+  color: #182033;
+  padding: 0 13px;
+  font: inherit;
+  font-weight: 800;
+  outline: none;
+}
+
+.editorModal input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
+}
+
+.rateInput {
+  position: relative;
+}
+
+.rateInput input {
+  padding-right: 46px;
+}
+
+.rateInput b {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  color: #2563eb;
+  transform: translateY(-50%);
+}
+
+.editorHint {
+  margin: -4px 0 0;
+  color: #697386;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.editorActions {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 10px;
+}
+
+.editorActions button:first-child {
+  border-color: rgba(36, 50, 74, 0.12);
+  background: #f8fafc;
+  color: #526071;
+}
+
+.editorActions button:last-child {
+  border-color: transparent;
+  background: linear-gradient(135deg, #0f2a69, #2563eb);
+  color: #fff;
+}
+
+.editorActions button:disabled,
+.editorHead button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .chart {
@@ -253,6 +460,10 @@
   .kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .directoryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -261,5 +472,21 @@
   .kpis,
   .detailStats {
     grid-template-columns: 1fr;
+  }
+
+  .directoryGrid,
+  .editorActions {
+    grid-template-columns: 1fr;
+  }
+
+  .directoryGrid article,
+  .panelHead {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .directoryGrid button,
+  .primaryButton {
+    width: 100%;
   }
 }

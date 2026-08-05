@@ -1,4 +1,5 @@
 import type { CrmRole, CrmUser } from "@/src/fsd/entities/user";
+import { createDefaultPayrollConfig, type PayrollConfig } from "@/src/fsd/entities/payroll";
 
 export const BRANCHES = {
   ayu: "Аю-Гранд",
@@ -47,6 +48,8 @@ const PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz2345
 export type UsersAccessDraft = CrmUser & {
   password: string;
   passwordVisible: boolean;
+  payroll: PayrollConfig;
+  payrollAvailable: boolean;
 };
 
 export function normalizeLogin(login: string) {
@@ -67,13 +70,15 @@ export function normalizePermissions(role: CrmRole, permissions: string[]) {
     : normalized.filter((permission) => permission !== "editDocumentPrices");
 }
 
-export function toUserDraft(user: CrmUser): UsersAccessDraft {
+export function toUserDraft(user: CrmUser, payroll?: PayrollConfig): UsersAccessDraft {
   return {
     ...user,
     branches: user.branches.length ? user.branches : ["ayu"],
     permissions: normalizePermissions(user.role, user.permissions),
     password: "",
     passwordVisible: false,
+    payroll: payroll ?? createDefaultPayrollConfig(user.salary, user.position),
+    payrollAvailable: Boolean(payroll && user.moySkladEmployeeHref),
   };
 }
 

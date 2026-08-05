@@ -7,6 +7,7 @@ import type { Customer } from "@/src/fsd/entities/customer";
 import type { Product } from "@/src/fsd/entities/product";
 import { StatusPanel } from "@/src/fsd/shared/ui/status";
 import { useToast } from "@/src/fsd/shared/ui/toast";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import { printSalesReceipt, type SalesReceiptData } from "@/src/fsd/features/print-sales-receipt";
 import type { CurrentSalesUser, PaymentTypeOption, RetailStore, SalesConfig, SelectOption } from "@/src/fsd/pages/sales/api/sales-api";
@@ -123,6 +124,9 @@ type SalesDraft = {
   customerMode: CustomerMode;
   customerHref: string;
   customerName: string;
+  customerFirstName: string;
+  customerLastName: string;
+  customerType: "individual" | "entrepreneur" | "legal";
   customerPhone: string;
   deliveryPhoneSecondary: string;
   customerAddress: string;
@@ -159,6 +163,9 @@ const emptyDraft: SalesDraft = {
   customerMode: "retail",
   customerHref: "",
   customerName: "",
+  customerFirstName: "",
+  customerLastName: "",
+  customerType: "individual",
   customerPhone: "",
   deliveryPhoneSecondary: "",
   customerAddress: "",
@@ -192,6 +199,11 @@ function money(value: number) {
 
 function parseDraftMoney(value: string) {
   return Number(String(value || "").replace(/\s/g, "").replace(",", "."));
+}
+
+function getDraftCustomerName(draft: SalesDraft) {
+  if (draft.customerMode !== "new") return draft.customerName.trim();
+  return [draft.customerLastName.trim(), draft.customerFirstName.trim()].filter(Boolean).join(" ");
 }
 
 function normalizeCreatedOrderResult(
@@ -239,7 +251,7 @@ function normalizeCreatedOrderResult(
     employeeName: typeof order.employeeName === "string" && order.employeeName ? order.employeeName : employeeName,
     customerName: typeof order.customerName === "string" && order.customerName
       ? order.customerName
-      : draft.customerName || "Розничный покупатель",
+      : getDraftCustomerName(draft) || "Розничный покупатель",
     baseTotal: numberValue(calculation.baseTotal) || calculatedBaseTotal,
     loyaltyRedemption: numberValue(calculation.loyaltyRedemption || loyalty.redeemed),
     finalTotal,
@@ -330,7 +342,7 @@ function findCurrentEmployee(employees: SelectOption[], currentUser: CurrentSale
   if (!currentUser) return null;
   const currentName = normalizeLookup(currentUser.name);
   const currentLogin = normalizeLookup(currentUser.login ?? "");
-  const branches = new Set(currentUser.branches);
+  const branches = new Set(Array.isArray(currentUser.branches) ? currentUser.branches : []);
 
   return (
     employees.find((employee) => Boolean(currentUser.moySkladEmployeeHref) && employee.href === currentUser.moySkladEmployeeHref) ??
@@ -423,6 +435,7 @@ export function SaleComposer({
   });
   const [productQuery, setProductQuery] = useState("");
   const [productResults, setProductResults] = useState<Product[]>([]);
+  const [isProductSearching, setIsProductSearching] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [calculation, setCalculation] = useState<Record<string, unknown> | null>(null);
@@ -438,6 +451,8 @@ export function SaleComposer({
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const productSearchControllerRef = useRef<AbortController | null>(null);
+  const productSearchGenerationRef = useRef(0);
 
   useEffect(() => {
     window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
@@ -521,7 +536,11 @@ export function SaleComposer({
     });
   };
 
-  const selectedStore = retailStores.find((store) => store.id === draft.retailStoreHref || store.href === draft.retailStoreHref) ?? retailStores[0];
+  // The API already filters stores using the authenticated user. Repeating that
+  // check in the browser caused valid stores to disappear when another screen
+  // had cached a reduced session user without branch fields.
+  const availableRetailStores = retailStores;
+  const selectedStore = availableRetailStores.find((store) => store.id === draft.retailStoreHref || store.href === draft.retailStoreHref) ?? availableRetailStores[0];
   const branchKey = branchKeyFromStoreName(selectedStore?.name || branches[draft.branchKey]);
   const branchName = selectedStore?.name || branches[branchKey];
   const branchIds = branchIdsFromStore(selectedStore);
@@ -558,11 +577,6 @@ export function SaleComposer({
   const secondaryMixedPaymentType = normalizedPaymentParts[1];
   const receiptPhotoOptional = mode === "debt" || draft.paymentScenario === "cash";
 
-  const productSearchMutation = useMutation({
-    mutationFn: (search: string) => getProducts(search, selectedStore?.storeHref ?? "", branchName),
-    onSuccess: setProductResults,
-  });
-
   const customerSearchMutation = useMutation({
     mutationFn: (search: string) => getCustomers(search, branchName),
     onSuccess: setCustomerResults,
@@ -570,16 +584,43 @@ export function SaleComposer({
 
   useEffect(() => {
     const search = productQuery.trim();
+    const generation = ++productSearchGenerationRef.current;
+    productSearchControllerRef.current?.abort();
     if (search.length < 2) return;
 
     const timer = window.setTimeout(() => {
-      productSearchMutation.mutate(search);
+      const controller = new AbortController();
+      productSearchControllerRef.current = controller;
+      setProductResults([]);
+      setIsProductSearching(true);
+      void getProducts(search, selectedStore?.storeHref ?? "", branchName, controller.signal)
+        .then((products) => {
+          if (generation === productSearchGenerationRef.current) setProductResults(products);
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted && generation === productSearchGenerationRef.current) {
+            setProductResults([]);
+            showToast({ tone: "error", title: "Поиск товаров недоступен", description: getErrorText(error) });
+          }
+        })
+        .finally(() => {
+          if (generation === productSearchGenerationRef.current) setIsProductSearching(false);
+        });
     }, 350);
 
-    return () => window.clearTimeout(timer);
-    // productSearchMutation is intentionally omitted: TanStack mutation objects are not stable dependencies.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productQuery, selectedStore?.id, branchName]);
+    return () => {
+      window.clearTimeout(timer);
+      productSearchControllerRef.current?.abort();
+    };
+  }, [branchName, productQuery, selectedStore?.id, selectedStore?.storeHref, showToast]);
+
+  const changeProductQuery = (value: string) => {
+    setProductQuery(value);
+    productSearchGenerationRef.current += 1;
+    productSearchControllerRef.current?.abort();
+    setProductResults([]);
+    setIsProductSearching(value.trim().length >= 2);
+  };
 
   useEffect(() => {
     const search = customerQuery.trim();
@@ -716,8 +757,7 @@ export function SaleComposer({
         },
       ],
     }));
-    setProductQuery("");
-    setProductResults([]);
+    changeProductQuery("");
   };
 
   const updateItem = <K extends keyof OrderItem>(localId: string, field: K, value: OrderItem[K]) => {
@@ -769,7 +809,10 @@ export function SaleComposer({
     storeHref: selectedStore?.storeHref || "",
     customerMode: draft.customerMode,
     customerHref: selectedCustomer?.href || draft.customerHref,
-    customerName: draft.customerName.trim(),
+    customerName: getDraftCustomerName(draft),
+    customerFirstName: draft.customerFirstName.trim(),
+    customerLastName: draft.customerLastName.trim(),
+    customerType: draft.customerMode === "new" ? "individual" : draft.customerType,
     customerPhone: draft.customerPhone.trim(),
     customerAddress: (draft.customerAddress || draft.deliveryAddress).trim(),
     delivery: {
@@ -819,7 +862,9 @@ export function SaleComposer({
     }
     if (!receiptFiles.length && !receiptPhotoOptional) throw new Error("Добавьте фотографию чека.");
     if (mode === "debt" && draft.customerMode === "retail") throw new Error("Для продажи в долг выберите нового или старого клиента.");
-    if (draft.customerMode === "new" && (!draft.customerName.trim() || !draft.customerPhone.trim())) throw new Error("Введите имя и телефон клиента.");
+    if (draft.customerMode === "new" && (!draft.customerFirstName.trim() || !draft.customerLastName.trim() || !draft.customerPhone.trim())) {
+      throw new Error("Введите имя, фамилию и телефон клиента.");
+    }
     if (draft.customerMode === "existing" && !draft.customerHref) throw new Error("Выберите существующего клиента.");
     if (draft.deliveryEnabled && (!draft.deliveryDate || !draft.deliveryTime || !draft.deliveryAddress.trim())) throw new Error("Заполните дату, время и адрес доставки.");
   };
@@ -835,7 +880,7 @@ export function SaleComposer({
             ? ``
             : "",
       total: Number(calculation?.finalTotal ?? baseTotal),
-      customerName: draft.customerName.trim() || "Розничный покупатель",
+      customerName: getDraftCustomerName(draft) || "Розничный покупатель",
       paymentLabel: String(calculation?.paymentLabel ?? selectedPaymentType?.name ?? draft.prepaymentMethodName ?? "-"),
       documentLabel: mode === "debt" ? "Отгрузка" : "Продажа",
       items: draft.items.map((item) => ({
@@ -873,12 +918,6 @@ export function SaleComposer({
   const finalTotal = Number(calculation?.finalTotal ?? baseTotal);
 
   useEffect(() => {
-    if (productSearchMutation.error) {
-      showToast({ tone: "error", title: "Не удалось найти товары", description: getErrorText(productSearchMutation.error) });
-    }
-  }, [productSearchMutation.error, showToast]);
-
-  useEffect(() => {
     if (customerSearchMutation.error) {
       showToast({ tone: "error", title: "Не удалось найти клиентов", description: getErrorText(customerSearchMutation.error) });
     }
@@ -905,6 +944,13 @@ export function SaleComposer({
           description="Текущий аккаунт не найден в справочнике сотрудников МойСклад. Проверьте имя сотрудника или синхронизацию сотрудников."
         />
       ) : null}
+      {!selectedStore ? (
+        <StatusPanel
+          tone="error"
+          title="Нет доступной точки продаж"
+          description="Для текущего сотрудника не найдена точка его филиала. Проверьте филиалы в разделе «Сотрудники и доступ»."
+        />
+      ) : null}
 
       <section className={styles.panel}>
         <h2>Точка продаж и сотрудник</h2>
@@ -914,7 +960,7 @@ export function SaleComposer({
             <select
               value={selectedStore?.id ?? selectedStore?.href ?? ""}
               onChange={(event) => {
-                const nextStore = retailStores.find((store) => store.id === event.target.value || store.href === event.target.value) ?? null;
+                const nextStore = availableRetailStores.find((store) => store.id === event.target.value || store.href === event.target.value) ?? null;
                 const nextBranchKey = branchKeyFromStoreName(nextStore?.name || "");
                 const nextBranchIds = branchIdsFromStore(nextStore);
                 const nextEmployees = employees.filter((employee) => employeeMatchesBranches(employee, nextBranchIds));
@@ -931,7 +977,7 @@ export function SaleComposer({
                 }));
               }}
             >
-              {retailStores.map((store) => (
+              {availableRetailStores.map((store) => (
                 <option key={store.id} value={store.id}>
                   {store.name}
                 </option>
@@ -974,8 +1020,8 @@ export function SaleComposer({
         <h2>Товары</h2>
         <div className={styles.searchLine}>
           <Search size={18} />
-          <input value={productQuery} onChange={(event) => setProductQuery(event.target.value)} placeholder="Поиск по названию, SKU или штрихкоду" />
-          {productSearchMutation.isPending ? <span>Ищу...</span> : null}
+          <input value={productQuery} onChange={(event) => changeProductQuery(event.target.value)} placeholder="Поиск по названию, SKU или штрихкоду" />
+          {isProductSearching ? <span>Ищу...</span> : null}
         </div>
         {productQuery.trim().length >= 2 && productResults.length ? (
           <div className={styles.results}>
@@ -1000,15 +1046,14 @@ export function SaleComposer({
                 <label className={styles.itemNumberField}>
                   <span>Количество, шт.</span>
                   <div>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       min="1"
                       step="1"
                       inputMode="numeric"
                       aria-label={`Количество товара ${item.productName}, штук`}
                       value={item.quantity}
-                      onFocus={(event) => event.currentTarget.select()}
-                      onChange={(event) => updateItem(item.localId, "quantity", Number(event.target.value))}
+                      emptyValue={1}
+                      onValueChange={(quantity) => updateItem(item.localId, "quantity", quantity)}
                     />
                     <b>шт.</b>
                   </div>
@@ -1249,6 +1294,7 @@ export function SaleComposer({
                     onClick={() => {
                       updateDraft("customerHref", customer.href ?? "");
                       updateDraft("customerName", customer.name);
+                      updateDraft("customerType", customer.customerType ?? "individual");
                       updateDraft("customerPhone", customer.phone ?? "");
                       updateDraft("customerAddress", customer.actualAddress ?? "");
                     }}
@@ -1261,10 +1307,39 @@ export function SaleComposer({
             ) : null}
           </>
         ) : null}
-        {draft.customerMode !== "retail" || draft.deliveryEnabled ? (
+        {draft.customerMode === "new" ? (
           <div className={styles.formGrid}>
             <label>
-              Имя клиента
+              Фамилия <span aria-hidden="true">*</span>
+              <input
+                value={draft.customerLastName}
+                onChange={(event) => updateDraft("customerLastName", event.target.value)}
+                autoComplete="family-name"
+                required
+              />
+            </label>
+            <label>
+              Имя <span aria-hidden="true">*</span>
+              <input
+                value={draft.customerFirstName}
+                onChange={(event) => updateDraft("customerFirstName", event.target.value)}
+                autoComplete="given-name"
+                required
+              />
+            </label>
+            <label>
+              Телефон <span aria-hidden="true">*</span>
+              <input value={draft.customerPhone} onChange={(event) => updateDraft("customerPhone", event.target.value)} />
+            </label>
+            <label>
+              Адрес клиента
+              <input value={draft.customerAddress} onChange={(event) => updateDraft("customerAddress", event.target.value)} />
+            </label>
+          </div>
+        ) : draft.customerMode !== "retail" || draft.deliveryEnabled ? (
+          <div className={styles.formGrid}>
+            <label>
+              Клиент
               <input value={draft.customerName} onChange={(event) => updateDraft("customerName", event.target.value)} />
             </label>
             <label>
@@ -1423,7 +1498,7 @@ export function SaleComposer({
                 showToast({ tone: "error", title: "Проверьте продажу", description: getErrorText(error) });
               }
             }}
-            disabled={orderMutation.isPending || isSubmitting}
+            disabled={orderMutation.isPending || isSubmitting || !selectedStore}
           >
             {orderMutation.isPending || isSubmitting ? "Создаю..." : mode === "debt" ? "Создать отгрузку" : "Создать документ"}
           </button>

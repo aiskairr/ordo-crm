@@ -15,6 +15,12 @@ import {
 } from "../_lib/super-admin-auth";
 import { getSuperAdminOverview } from "../_lib/super-admin/overview";
 import {
+  getMoySkladRateLimiterStats,
+  getMoySkladRetryDelayMs,
+  moySkladRateLimitedFetch,
+} from "../_lib/moysklad-rate-limiter";
+import { calculatePayrollCategoryBonus } from "../_lib/payroll-category-bonuses";
+import {
   createSystemAnnouncement,
   deleteSystemAnnouncement,
   getSystemAnnouncements,
@@ -22,6 +28,7 @@ import {
   updateSystemAnnouncement,
 } from "../_lib/system-announcements";
 import { renderTelegramSaleCard } from "../_lib/telegram-sale-card";
+import { getAttendanceNetworkSettings, saveAttendanceNetworkSettings } from "../_lib/attendance-network-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,7 +118,9 @@ type AttendanceRecord = {
   currentWorkMinutes: number;
   lateMinutes: number;
   status: "open" | "closed";
-  source?: "geo" | "admin";
+  source?: "geo" | "wifi" | "admin";
+  telegramOpenMessageId?: number;
+  telegramCloseMessageId?: number;
 };
 
 type AttendanceBranchSchedule = {
@@ -119,12 +128,28 @@ type AttendanceBranchSchedule = {
   label: string;
   workStartsAt: string;
   workEndsAt: string;
+  workDays: number[];
 };
 
 type AttendanceSchedule = {
   workStartsAt: string;
   workEndsAt: string;
   branches: AttendanceBranchSchedule[];
+};
+
+type AttendanceCalendarKind = "holiday" | "day_off" | "leave" | "short_day";
+
+type AttendanceCalendarEntry = {
+  id: string;
+  kind: AttendanceCalendarKind;
+  dateFrom: string;
+  dateTo: string;
+  userId: string;
+  storeId: string;
+  title: string;
+  workEndsAt: string;
+  createdAt: string;
+  createdBy: string;
 };
 
 type OrderProduct = {
@@ -195,6 +220,7 @@ type AppData = {
   attendanceStores: AttendanceStore[];
   attendanceRecords: AttendanceRecord[];
   attendanceSchedule: AttendanceSchedule;
+  attendanceCalendar: AttendanceCalendarEntry[];
   customsHistory: JsonRecord[];
   orders: LocalOrder[];
 };
@@ -255,9 +281,11 @@ const RECONCILIATION_LIST_CACHE_TTL_MS = 120_000;
 const RECONCILIATION_DETAILS_CACHE_TTL_MS = 120_000;
 const RECONCILIATION_BATCH_SIZE = 100;
 const PRODUCT_STOCK_CACHE_TTL_MS = 20_000;
+const PRODUCT_SEARCH_CACHE_TTL_MS = 15_000;
 const SALES_REPORT_CACHE_TTL_MS = 60_000;
 
 const productStockCache = new Map<string, { value: number; createdAt: number }>();
+const productSearchCache = new Map<string, { value: ReturnType<typeof mapMoySkladProductForSales>[]; createdAt: number }>();
 const salesReportCache = new Map<string, { value: { rows: Array<Record<string, unknown>>; canViewProfit: boolean; totals?: JsonRecord; dateFrom?: string; dateTo?: string }; createdAt: number }>();
 const SALE_REQUEST_CACHE_TTL_MS = 10 * 60 * 1000;
 const saleRequestCache = new Map<string, { createdAt: number; result: Promise<unknown> }>();
@@ -346,12 +374,13 @@ function seedData(): AppData {
       { id: "besh-sary", name: "Беш-Сары", branch: "Беш-Сары", address: "Бишкек", latitude: 0, longitude: 0, allowedRadiusMeters: 100 },
     ],
     attendanceRecords: [],
+    attendanceCalendar: [],
     attendanceSchedule: {
       workStartsAt: "09:00",
       workEndsAt: "18:00",
       branches: [
-        { key: "ayu-grand", label: "Аю-Гранд", workStartsAt: "09:00", workEndsAt: "18:00" },
-        { key: "besh-sary", label: "Беш-Сары", workStartsAt: "09:00", workEndsAt: "19:00" },
+        { key: "ayu-grand", label: "Аю-Гранд", workStartsAt: "09:00", workEndsAt: "18:00", workDays: [1, 2, 3, 4, 5, 6, 7] },
+        { key: "besh-sary", label: "Беш-Сары", workStartsAt: "09:00", workEndsAt: "19:00", workDays: [1, 2, 3, 4, 5, 6, 7] },
       ],
     },
     customsHistory: [],
@@ -368,6 +397,7 @@ async function readData(): Promise<AppData> {
       ...seedData(),
       ...parsed,
       attendanceSchedule: normalizeAttendanceSchedule(parsed.attendanceSchedule),
+      attendanceCalendar: normalizeAttendanceCalendar(parsed.attendanceCalendar),
     };
   } catch {
     const seeded = seedData();
@@ -402,8 +432,35 @@ function normalizeAttendanceSchedule(value: Partial<AttendanceSchedule> | undefi
       label: asString(branch.label, "Филиал"),
       workStartsAt: asString(branch.workStartsAt, fallback.workStartsAt),
       workEndsAt: asString(branch.workEndsAt, fallback.workEndsAt),
+      workDays: normalizeAttendanceWorkDays(branch.workDays),
     })),
   };
+}
+
+function normalizeAttendanceWorkDays(value: unknown) {
+  if (!Array.isArray(value)) return [1, 2, 3, 4, 5, 6, 7];
+  return [...new Set(value.map(Number).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7))].sort((left, right) => left - right);
+}
+
+function normalizeAttendanceCalendar(value: unknown): AttendanceCalendarEntry[] {
+  if (!Array.isArray(value)) return [];
+  const kinds: AttendanceCalendarKind[] = ["holiday", "day_off", "leave", "short_day"];
+  return value.map(asRecord).map((entry) => {
+    const kind = kinds.includes(entry.kind as AttendanceCalendarKind) ? entry.kind as AttendanceCalendarKind : "day_off";
+    const dateFrom = asString(entry.dateFrom || entry.date).slice(0, 10);
+    return {
+      id: asString(entry.id, randomUUID()),
+      kind,
+      dateFrom,
+      dateTo: asString(entry.dateTo, dateFrom).slice(0, 10),
+      userId: asString(entry.userId),
+      storeId: asString(entry.storeId),
+      title: asString(entry.title),
+      workEndsAt: asString(entry.workEndsAt),
+      createdAt: asString(entry.createdAt, new Date().toISOString()),
+      createdBy: asString(entry.createdBy),
+    };
+  }).filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry.dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(entry.dateTo));
 }
 
 function json(payload: unknown, status = 200, cookie?: { name: string; value: string; maxAge?: number }) {
@@ -625,24 +682,32 @@ function getIdFromHref(href: string) {
 async function moyskladFetch(url: string, init: RequestInit = {}) {
   const method = String(init.method || "GET").toUpperCase();
   const retryable = method === "GET" || method === "HEAD";
+  const externalSignal = init.signal;
 
   for (let attempt = 0; attempt < (retryable ? 4 : 1); attempt += 1) {
     const controller = new AbortController();
+    const forwardAbort = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) forwardAbort();
+    else externalSignal?.addEventListener("abort", forwardAbort, { once: true });
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+      const response = await moySkladRateLimitedFetch(url, { ...init, signal: controller.signal });
       if (response.status !== 429 || !retryable || attempt === 3) {
         return response;
       }
-      const retryAfter = Number(response.headers.get("retry-after"));
-      await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 450 * (attempt + 1));
+      const retryDelayMs = getMoySkladRetryDelayMs(response);
+      await sleep(Math.max(retryDelayMs, 450 * (attempt + 1)));
     } catch (caught) {
+      if (externalSignal?.aborted) {
+        throw new Response("Поисковый запрос отменён.", { status: 499 });
+      }
       if (caught instanceof DOMException && caught.name === "AbortError") {
         throw new Response("МойСклад слишком долго отвечает. Попробуйте еще раз.", { status: 504 });
       }
       throw new Response("Не удалось подключиться к МойСклад.", { status: 502 });
     } finally {
       clearTimeout(timeout);
+      externalSignal?.removeEventListener("abort", forwardAbort);
     }
   }
 
@@ -1304,7 +1369,10 @@ async function updateManagedCrmUser(id: string, input: JsonRecord, data: AppData
     body: JSON.stringify(payload),
   }) as JsonRecord[];
   if (!rows[0]) throw new Response("Сотрудник не найден", { status: 404 });
-  return sanitizeManagedCrmUser(rows[0]);
+  const updatedUser = sanitizeManagedCrmUser(rows[0]);
+  upsertSessionUser(data, updatedUser);
+  await writeData(data);
+  return updatedUser;
 }
 
 async function deleteManagedCrmUser(id: string, data: AppData, actor: CrmUser) {
@@ -1788,19 +1856,63 @@ function requireUser(request: NextRequest, data: AppData) {
   return user;
 }
 
+async function requireFreshUser(request: NextRequest, data: AppData) {
+  const cachedUser = requireUser(request, data);
+  if (!isSupabaseCrmEnabled() || !isUuid(cachedUser.id)) return cachedUser;
+
+  try {
+    const row = await getSupabaseCrmUserById(cachedUser.id);
+    if (!row || row.active === false) return cachedUser;
+
+    const freshUser = sanitizeSupabaseUser(row);
+    const accessChanged = JSON.stringify({
+      name: cachedUser.name,
+      login: cachedUser.login,
+      position: cachedUser.position,
+      salary: cachedUser.salary,
+      role: cachedUser.role,
+      branches: normalizeCrmBranches(cachedUser.branches),
+      permissions: cachedUser.permissions,
+      active: cachedUser.active,
+      moySkladEmployeeHref: cachedUser.moySkladEmployeeHref || "",
+    }) !== JSON.stringify({
+      name: freshUser.name,
+      login: freshUser.login,
+      position: freshUser.position,
+      salary: freshUser.salary,
+      role: freshUser.role,
+      branches: freshUser.branches,
+      permissions: freshUser.permissions,
+      active: freshUser.active,
+      moySkladEmployeeHref: freshUser.moySkladEmployeeHref || "",
+    });
+
+    if (accessChanged) {
+      upsertSessionUser(data, freshUser);
+      await writeData(data);
+    }
+
+    return data.users.find((item) => item.id === freshUser.id && item.active) || cachedUser;
+  } catch {
+    // Temporary Supabase failures must not terminate an otherwise valid CRM session.
+    return cachedUser;
+  }
+}
+
 function requireAdmin(request: NextRequest, data: AppData) {
   const user = requireUser(request, data);
   if (!["admin", "owner"].includes(user.role)) throw new Response("Недостаточно прав", { status: 403 });
   return user;
 }
 
-async function moysklad(pathname: string, params: Record<string, string> = {}) {
+async function moysklad(pathname: string, params: Record<string, string> = {}, init: RequestInit = {}) {
   const token = getMoySkladToken();
   const url = new URL(`${MOYSKLAD_BASE_URL}${pathname}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value) url.searchParams.set(key, value);
   });
   const response = await moyskladFetch(url.toString(), {
+    ...init,
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
   });
   if (!response.ok) {
@@ -1842,6 +1954,68 @@ async function getMoySkladRetailStores(): Promise<RetailStoreOption[]> {
   }).filter((item: RetailStoreOption) => item.href);
 }
 
+type SalesBranchKey = "ayu" | "besh";
+
+function canonicalSalesBranch(value: unknown): SalesBranchKey | null {
+  const normalized = asString(value)
+    .trim()
+    .toLocaleLowerCase("ru-RU")
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9]+/giu, " ");
+  if (normalized.includes("беш") || normalized.includes("besh")) return "besh";
+  if (normalized.includes("аю") || normalized.includes("ayu")) return "ayu";
+  return null;
+}
+
+function getUserSalesBranches(user: Pick<CrmUser, "branches">) {
+  return new Set(
+    normalizeCrmBranches(user.branches)
+      .map(canonicalSalesBranch)
+      .filter((branch): branch is SalesBranchKey => Boolean(branch)),
+  );
+}
+
+function retailStoreBranch(store: Pick<RetailStoreOption, "name" | "storeName">) {
+  return canonicalSalesBranch(store.name) ?? canonicalSalesBranch(store.storeName) ?? "ayu";
+}
+
+function canUserUseRetailStore(user: Pick<CrmUser, "branches" | "role">, store: RetailStoreOption) {
+  const branch = retailStoreBranch(store);
+  const userBranches = getUserSalesBranches(user);
+  if (!userBranches.size && (user.role === "admin" || user.role === "owner")) return true;
+  return Boolean(branch && userBranches.has(branch));
+}
+
+function findRetailStoreForSale(stores: RetailStoreOption[], input: JsonRecord) {
+  const retailStoreHref = asString(input.retailStoreHref).trim();
+  const storeHref = asString(input.storeHref).trim();
+  return stores.find((store) => Boolean(retailStoreHref) && (store.href === retailStoreHref || store.id === retailStoreHref))
+    ?? stores.find((store) => Boolean(storeHref) && store.storeHref === storeHref)
+    ?? null;
+}
+
+async function enforceSaleBranch(payload: JsonRecord, user: CrmUser) {
+  const stores = await getMoySkladRetailStores();
+  const selectedStore = findRetailStoreForSale(stores, payload);
+  if (!selectedStore) {
+    throw new Response("Выбранная точка продаж не найдена в МойСклад. Обновите страницу и выберите точку заново.", { status: 409 });
+  }
+  const branch = retailStoreBranch(selectedStore);
+  if (!branch) {
+    throw new Response(`Точка «${selectedStore.name}» не привязана к филиалу CRM.`, { status: 409 });
+  }
+  if (!canUserUseRetailStore(user, selectedStore)) {
+    throw new Response(`У сотрудника «${user.name}» нет доступа к точке «${selectedStore.name}».`, { status: 403 });
+  }
+  return {
+    ...payload,
+    branchName: selectedStore.name,
+    retailStoreName: selectedStore.name,
+    retailStoreHref: selectedStore.href,
+    storeHref: selectedStore.storeHref,
+  };
+}
+
 async function getMoySkladCustomEntityOptions(entityId: string, fallback: PaymentOption[] = []): Promise<PaymentOption[]> {
   if (!entityId) return fallback;
   const rows = await moyskladRows(`/entity/customentity/${entityId}`, { limit: "100" }).catch(() => []);
@@ -1853,6 +2027,93 @@ async function getMoySkladCustomEntityOptions(entityId: string, fallback: Paymen
     const parsed = parsePaymentType(name);
     return { id: href, href, name, provider: parsed.provider, months: parsed.months, rate: getPaymentRate(parsed.provider, parsed.months, parseRateFromComment(asString(row.description))), comment: asString(row.description) };
   }).filter((item: PaymentOption) => Boolean(item.href));
+}
+
+function getPaymentTypeCustomEntityId() {
+  const entityId = String(process.env.MOYSKLAD_PAYMENT_TYPE_CUSTOM_ENTITY_ID || "").trim();
+  if (!entityId) {
+    throw new Response("Не задан MOYSKLAD_PAYMENT_TYPE_CUSTOM_ENTITY_ID для справочника видов оплат.", { status: 503 });
+  }
+  return entityId;
+}
+
+function normalizePaymentRatePercent(value: unknown) {
+  const rate = Number(String(value ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    throw new Response("Комиссия должна быть числом от 0 до 100 процентов.", { status: 400 });
+  }
+  return Math.round(rate * 100) / 100;
+}
+
+function formatPaymentRateDescription(ratePercent: number) {
+  return Number.isInteger(ratePercent)
+    ? String(ratePercent)
+    : ratePercent.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function mapPaymentTypeDirectoryItem(value: unknown): PaymentOption {
+  const row = asRecord(value);
+  const href = asString(asRecord(row.meta).href);
+  const name = asString(row.name);
+  const parsed = parsePaymentType(name);
+  return {
+    id: asString(row.id) || getIdFromHref(href),
+    href,
+    name,
+    archived: row.archived === true,
+    provider: parsed.provider,
+    months: parsed.months,
+    rate: getPaymentRate(parsed.provider, parsed.months, parseRateFromComment(asString(row.description))),
+    comment: asString(row.description),
+  };
+}
+
+async function createMoySkladPaymentType(input: JsonRecord) {
+  const entityId = getPaymentTypeCustomEntityId();
+  const name = asString(input.name).trim();
+  const ratePercent = normalizePaymentRatePercent(input.ratePercent);
+  if (!name) throw new Response("Укажите название вида оплаты.", { status: 400 });
+
+  const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/customentity/${encodeURIComponent(entityId)}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getMoySkladToken()}`,
+      Accept: "application/json;charset=utf-8",
+      "Content-Type": "application/json;charset=utf-8",
+    },
+    body: JSON.stringify({ name, description: formatPaymentRateDescription(ratePercent) }),
+  });
+  const created = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Response(getMoySkladError(created, "Не удалось создать вид оплаты в МойСклад."), { status: response.status });
+  }
+  salesReportCache.clear();
+  return mapPaymentTypeDirectoryItem(created);
+}
+
+async function updateMoySkladPaymentType(id: string, input: JsonRecord) {
+  const entityId = getPaymentTypeCustomEntityId();
+  const itemId = getIdFromHref(id) || id.trim();
+  const name = asString(input.name).trim();
+  const ratePercent = normalizePaymentRatePercent(input.ratePercent);
+  if (!itemId) throw new Response("Не найден вид оплаты для редактирования.", { status: 400 });
+  if (!name) throw new Response("Укажите название вида оплаты.", { status: 400 });
+
+  const response = await moyskladFetch(`${MOYSKLAD_BASE_URL}/entity/customentity/${encodeURIComponent(entityId)}/${encodeURIComponent(itemId)}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${getMoySkladToken()}`,
+      Accept: "application/json;charset=utf-8",
+      "Content-Type": "application/json;charset=utf-8",
+    },
+    body: JSON.stringify({ name, description: formatPaymentRateDescription(ratePercent) }),
+  });
+  const updated = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Response(getMoySkladError(updated, "Не удалось обновить вид оплаты в МойСклад."), { status: response.status });
+  }
+  salesReportCache.clear();
+  return mapPaymentTypeDirectoryItem(updated);
 }
 
 async function getMoySkladPlainCustomEntityOptions(entityId: string): Promise<CustomEntityOption[]> {
@@ -2214,18 +2475,21 @@ async function enforceSaleEmployee(payload: JsonRecord, user: CrmUser) {
   return payload;
 }
 
-async function getProducts(search: string, storeHref = "") {
+async function getProducts(search: string, storeHref = "", signal?: AbortSignal | null) {
   const normalizedSearch = search.trim();
   if (normalizedSearch.length < 2) return [];
+  const cacheKey = `${normalizeEmployeeKey(normalizedSearch)}|${storeHref}`;
+  const cached = productSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < PRODUCT_SEARCH_CACHE_TTL_MS) return cached.value;
   const queries = getProductSearchQueries(normalizedSearch);
   const allRows: unknown[] = [];
   const seen = new Set<string>();
-  for (const query of queries) {
-    const remote = await moysklad("/entity/product", {
+  const remoteGroups = await Promise.all(queries.map((query) => moysklad("/entity/product", {
       limit: "20",
       search: query,
       expand: "productFolder",
-    });
+    }, { signal })));
+  for (const remote of remoteGroups) {
     const rows = Array.isArray(remote?.rows) ? remote.rows : [];
     for (const value of rows) {
       const row = asRecord(value);
@@ -2235,17 +2499,19 @@ async function getProducts(search: string, storeHref = "") {
       allRows.push(value);
     }
   }
-  const selectedRows = allRows.slice(0, 50);
+  const selectedRows = allRows.slice(0, 20);
+  const productHrefs = selectedRows.map((value) => asString(asRecord(asRecord(value).meta).href));
   const [stockValues, currenciesByHref] = await Promise.all([
-    Promise.all(
-      selectedRows.map((value) => {
-        const row = asRecord(value);
-        return getMoySkladProductStock(asString(asRecord(row.meta).href), storeHref).catch(() => 0);
-      }),
-    ),
+    getMoySkladProductStocks(productHrefs, storeHref, signal).catch(() => productHrefs.map(() => 0)),
     getMoySkladAccountingCurrencies().catch(() => new Map<string, AccountingCurrency>()),
   ]);
-  return selectedRows.map((value, index) => mapMoySkladProductForSales(value, index, stockValues[index] ?? 0, currenciesByHref));
+  const result = selectedRows.map((value, index) => mapMoySkladProductForSales(value, index, stockValues[index] ?? 0, currenciesByHref));
+  productSearchCache.set(cacheKey, { value: result, createdAt: Date.now() });
+  if (productSearchCache.size > 100) {
+    const expiration = Date.now() - PRODUCT_SEARCH_CACHE_TTL_MS;
+    for (const [key, entry] of productSearchCache) if (entry.createdAt < expiration) productSearchCache.delete(key);
+  }
+  return result;
 }
 
 function getProductSearchQueries(search: string) {
@@ -2277,27 +2543,42 @@ function getProductBuyPrice(row: JsonRecord, currenciesByHref = new Map<string, 
   return roundMoney(isUsdCurrency(currency) ? rawCost * getReportUsdRate() : rawCost);
 }
 
-async function getMoySkladProductStock(productHref: string, storeHref = "") {
-  if (!productHref) return 0;
-
+async function getMoySkladProductStocks(productHrefs: string[], storeHref = "", signal?: AbortSignal | null) {
+  if (!productHrefs.length) return [];
   const effectiveStoreHref = String(storeHref || getMoySkladEnvValue("STORE_HREF")).trim();
-  if (!effectiveStoreHref) return 0;
+  if (!effectiveStoreHref) return productHrefs.map(() => 0);
 
-  const cacheKey = `${effectiveStoreHref}|${productHref}`;
-  const cached = productStockCache.get(cacheKey);
-  if (cached && Date.now() - cached.createdAt < PRODUCT_STOCK_CACHE_TTL_MS) {
-    return cached.value;
+  const now = Date.now();
+  const stocks = new Map<string, number>();
+  const missingHrefs: string[] = [];
+  for (const productHref of productHrefs) {
+    const cached = productStockCache.get(`${effectiveStoreHref}|${productHref}`);
+    if (cached && now - cached.createdAt < PRODUCT_STOCK_CACHE_TTL_MS) stocks.set(productHref, cached.value);
+    else missingHrefs.push(productHref);
   }
 
-  const payload = await moysklad("/report/stock/all", {
-    limit: "1",
-    filter: `store=${effectiveStoreHref};product=${productHref}`,
-  });
-  const row = Array.isArray(payload?.rows) ? asRecord(payload.rows[0]) : {};
-  const stock = asNumber(row.stock);
-  const normalized = Number.isFinite(stock) ? stock : 0;
-  productStockCache.set(cacheKey, { value: normalized, createdAt: Date.now() });
-  return normalized;
+  if (missingHrefs.length) {
+    const filter = [
+      `store=${effectiveStoreHref}`,
+      ...missingHrefs.map((productHref) => `product=${productHref}`),
+    ].join(";");
+    const payload = await moysklad("/report/stock/all", {
+      limit: String(Math.min(100, missingHrefs.length)),
+      filter,
+    }, { signal });
+    const rows = Array.isArray(payload?.rows) ? payload.rows.map(asRecord) : [];
+    for (const row of rows) {
+      const productHref = asString(asRecord(row.meta).href || asRecord(asRecord(row.assortment).meta).href);
+      if (!productHref) continue;
+      stocks.set(productHref, asNumber(row.stock));
+    }
+    for (const productHref of missingHrefs) {
+      const stock = stocks.get(productHref) ?? 0;
+      productStockCache.set(`${effectiveStoreHref}|${productHref}`, { value: stock, createdAt: now });
+    }
+  }
+
+  return productHrefs.map((productHref) => stocks.get(productHref) ?? 0);
 }
 
 function mapMoySkladProductForSales(
@@ -2377,7 +2658,7 @@ async function getCustomers(search: string) {
       okpo: asString(row.okpo || parsed.okpo),
       email: asString(row.email),
       comment,
-      customerType: row.companyType === "legal" ? "legal" : row.companyType === "entrepreneur" ? "entrepreneur" : "individual",
+      customerType: normalizeCounterpartyType(row),
     };
   });
 }
@@ -2787,10 +3068,30 @@ async function getOrCreateCounterparty(token: string, input: JsonRecord) {
     await updateCounterpartyContact(token, asString(input.customerHref), input);
     return asString(input.customerHref);
   }
-  const customerName = asString(input.customerName).trim();
-  if (!customerName) throw new Response("Укажите ФИО клиента.", { status: 400 });
-  const payload: JsonRecord = { name: customerName, description: "Создано автоматически из Ordo CRM" };
   const tags = Array.isArray(input.customerGroups) ? input.customerGroups.map(String).map((value) => value.trim()).filter(Boolean) : [];
+  const requestedCustomerType = asString(input.customerType).trim().toLowerCase();
+  const isLegalCustomer = requestedCustomerType === "legal"
+    || tags.some((tag) => tag.toLowerCase().includes("организац"));
+  const legacyCustomerName = asString(input.customerName).trim();
+  const legacyNameParts = legacyCustomerName.split(/\s+/).filter(Boolean);
+  const customerFirstName = asString(input.customerFirstName).trim() || (isLegalCustomer ? "" : legacyNameParts[0] || "");
+  const customerLastName = asString(input.customerLastName).trim() || (isLegalCustomer ? "" : legacyNameParts.slice(1).join(" "));
+  const customerName = isLegalCustomer
+    ? legacyCustomerName
+    : [customerLastName, customerFirstName].filter(Boolean).join(" ");
+  if (!customerName) throw new Response("Укажите имя клиента.", { status: 400 });
+  if (!isLegalCustomer && (!customerFirstName || !customerLastName)) {
+    throw new Response("Укажите имя и фамилию клиента.", { status: 400 });
+  }
+  const payload: JsonRecord = {
+    name: customerName,
+    companyType: isLegalCustomer ? "legal" : "individual",
+    description: "Создано автоматически из Ordo CRM",
+  };
+  if (!isLegalCustomer) {
+    payload.legalFirstName = customerFirstName;
+    payload.legalLastName = customerLastName;
+  }
   const debtorTag = getMoySkladDebtorTag();
   if (isDebtSaleInput(input) && debtorTag) tags.push(debtorTag);
   const bank = asString(input.customerBank).trim();
@@ -3151,6 +3452,10 @@ function orderFromDraft(draft: JsonRecord, data: AppData): LocalOrder {
   const id = randomUUID();
   const employee = data.users.find((user) => user.id === draft.employeeId);
   const store = data.attendanceStores.find((item) => item.id === draft.retailStoreId || item.name === draft.retailStoreId);
+  const draftCustomerType = asString(draft.customerType);
+  const customerType = draftCustomerType === "legal" || draftCustomerType === "entrepreneur"
+    ? draftCustomerType
+    : "individual";
   return {
     id,
     type: draft.customerMode === "existing" ? "demand" : "retaildemand",
@@ -3164,7 +3469,7 @@ function orderFromDraft(draft: JsonRecord, data: AppData): LocalOrder {
     storeName: store?.name || asString(draft.retailStoreName ?? draft.retailStoreId, "Аю-Гранд"),
     customerName: asString(draft.customerName, "Розничный покупатель"),
     customerPhone: asString(draft.customerPhone),
-    customerType: draft.customerMode === "existing" ? "legal" : "individual",
+    customerType,
     employeeName: employee?.name || asString(draft.employeeName, ""),
     paymentType: asString(draft.paymentType, "cash"),
     comment: asString(draft.comment),
@@ -3197,10 +3502,31 @@ function getDocumentTypeLabel(type: string) {
 }
 
 function normalizeCounterpartyType(agent: JsonRecord) {
-  const value = [agent.companyType, agent.legalTitle, agent.name].map(String).join(" ").toLowerCase();
-  if (value.includes("entrepreneur") || value.includes("ип")) return "entrepreneur";
-  if (value.includes("legal") || value.includes("company") || value.includes("юр")) return "legal";
-  return agent.inn ? "legal" : "individual";
+  const companyType = asString(agent.companyType).trim().toLowerCase();
+  const name = asString(agent.name).trim().toLowerCase();
+  const legalTitle = asString(agent.legalTitle).trim().toLowerCase();
+  const description = asString(agent.description).trim().toLowerCase();
+  const tags = Array.isArray(agent.tags) ? agent.tags.map(String).join(" ").toLowerCase() : "";
+  const entrepreneurName = /(^|\s)(ип|и\.п\.)(\s|$)/i.test(name);
+
+  if (companyType === "entrepreneur" || entrepreneurName) return "entrepreneur";
+  if (companyType === "individual") return "individual";
+  if (companyType === "legal") {
+    const createdByCrm = description.includes("создано автоматически из ordo crm");
+    const hasLegalDetails = Boolean(agent.inn || legalTitle || tags.includes("организац"));
+    return createdByCrm && !hasLegalDetails ? "individual" : "legal";
+  }
+  if (legalTitle || agent.inn || tags.includes("организац")) return "legal";
+  return "individual";
+}
+
+function getReportCounterpartyType(agent: JsonRecord) {
+  const agentHref = asString(asRecord(agent.meta).href);
+  const retailCustomerHref = getMoySkladEnvValue("AGENT_HREF");
+  const normalizedName = asString(agent.name).trim().toLocaleLowerCase("ru-RU").replace(/ё/g, "е");
+  const isRetailCustomer = Boolean(retailCustomerHref && agentHref === retailCustomerHref)
+    || normalizedName.includes("розничный покупатель");
+  return isRetailCustomer ? "individual" : normalizeCounterpartyType(agent);
 }
 
 function getCounterpartyTypeLabel(type: string) {
@@ -3213,6 +3539,91 @@ function getReportPaymentType(document: JsonRecord) {
   const attr = getReportAttributeValue(document, "PAYMENT_TYPE", asString(document.reportDocumentType || asRecord(document.meta).type));
   if (attr) return typeof attr === "object" ? asString(asRecord(attr).name) : String(attr);
   return asString(document.description).match(/Тип оплаты:\s*([^\n.]+)/i)?.[1]?.trim() || "";
+}
+
+function getDescriptionPaymentType(description: unknown) {
+  return asString(description).match(/Тип оплаты:\s*([^\n.]+)/i)?.[1]?.trim() || "";
+}
+
+function correctReportPaymentComment(description: unknown, currentPaymentType: string) {
+  const comment = asString(description);
+  const previousPaymentType = getDescriptionPaymentType(comment);
+  if (!currentPaymentType || !previousPaymentType || normalizePaymentAnalyticsKey(previousPaymentType) === normalizePaymentAnalyticsKey(currentPaymentType)) {
+    return comment;
+  }
+  return comment.replace(/(Тип оплаты:\s*)[^\n.]+(\.?)/i, `$1${currentPaymentType}$2`);
+}
+
+function makeReportPaymentTypeMap(options: PaymentOption[]) {
+  const result = new Map<string, PaymentOption>();
+  for (const option of options) {
+    if (option.href) result.set(option.href, option);
+    const nameKey = normalizePaymentAnalyticsKey(option.name);
+    if (nameKey) result.set(nameKey, option);
+  }
+  return result;
+}
+
+function resolveReportPaymentOption(document: JsonRecord, documentType: string, paymentTypeMap: Map<string, PaymentOption>) {
+  const attribute = getReportAttributeValue(document, "PAYMENT_TYPE", documentType);
+  const attributeRecord = asRecord(attribute);
+  const href = asString(asRecord(attributeRecord.meta).href || attributeRecord.href);
+  const name = typeof attribute === "object" ? asString(attributeRecord.name) : asString(attribute);
+  const option = paymentTypeMap.get(href) || paymentTypeMap.get(normalizePaymentAnalyticsKey(name));
+  const effectiveName = option?.name || name || getDescriptionPaymentType(document.description);
+  const parsed = parsePaymentType(effectiveName);
+  return {
+    name: effectiveName,
+    rate: asNumber(option?.rate, getPaymentRate(parsed.provider, parsed.months, parseRateFromComment(asString(option?.comment)))),
+  };
+}
+
+function calculateCurrentReportCommission(
+  document: JsonRecord,
+  documentType: string,
+  amount: number,
+  storedCommission: number,
+  paymentTypeMap: Map<string, PaymentOption>,
+) {
+  if (!paymentTypeMap.size) {
+    return {
+      paymentType: getReportPaymentType(document),
+      commission: storedCommission,
+      paymentTypeCorrected: false,
+      commissionCorrected: false,
+      comment: asString(document.description),
+    };
+  }
+  const currentPayment = resolveReportPaymentOption(document, documentType, paymentTypeMap);
+  const paymentLines = parseBankPaymentLines(asString(document.description))
+    .map((line) => {
+      const option = paymentTypeMap.get(normalizePaymentAnalyticsKey(line.name));
+      if (!option && !isCashPrepaymentMethod(line.name)) return null;
+      const parsed = parsePaymentType(option?.name || line.name);
+      const rate = asNumber(option?.rate, getPaymentRate(parsed.provider, parsed.months, parseRateFromComment(asString(option?.comment))));
+      return { ...line, rate };
+    })
+    .filter((line): line is { name: string; amount: number; rate: number } => Boolean(line));
+
+  const hasMixedPayment = paymentLines.length > 1;
+  const calculated = hasMixedPayment
+    ? roundMoney(paymentLines.reduce((sum, line) => sum + line.amount * line.rate, 0))
+    : currentPayment.name
+      ? roundMoney(amount * currentPayment.rate)
+      : storedCommission;
+  const previousPaymentType = getDescriptionPaymentType(document.description);
+
+  return {
+    paymentType: currentPayment.name || getReportPaymentType(document),
+    commission: calculated,
+    paymentTypeCorrected: Boolean(
+      currentPayment.name
+      && previousPaymentType
+      && normalizePaymentAnalyticsKey(currentPayment.name) !== normalizePaymentAnalyticsKey(previousPaymentType)
+    ),
+    commissionCorrected: Math.abs(calculated - storedCommission) > 0.01,
+    comment: correctReportPaymentComment(document.description, currentPayment.name),
+  };
 }
 
 function getReportAttributeValue(document: JsonRecord, attribute: string, documentType: string) {
@@ -3273,12 +3684,13 @@ function mapMoySkladReportDocument(
   value: unknown,
   documentType: string,
   currenciesByHref = new Map<string, AccountingCurrency>(),
+  paymentTypeMap = new Map<string, PaymentOption>(),
 ) {
   const row = asRecord(value);
   const positionsRecord = asRecord(row.positions);
   const positions = Array.isArray(positionsRecord.rows) ? positionsRecord.rows.map(asRecord) : [];
   const agent = asRecord(row.agent);
-  const customerType = normalizeCounterpartyType(agent);
+  const customerType = getReportCounterpartyType(agent);
   const currency = getReconciliationCurrency(row, currenciesByHref);
   const usd = isUsdCurrency(currency);
   const exchangeRate = usd ? getReportUsdRate() : 1;
@@ -3297,7 +3709,9 @@ function mapMoySkladReportDocument(
   const unpaid = convert(sourceUnpaid);
   const costTotal = roundMoney(positions.reduce((sum, position) => sum + getReportPositionCostTotal(position, currenciesByHref), 0));
   const sourceCommission = roundMoney(getReportMoneyFromTextAttribute(row, "COMMISSION", documentType));
-  const commission = convert(sourceCommission);
+  const storedCommission = convert(sourceCommission);
+  const paymentSync = calculateCurrentReportCommission(row, documentType, amount, storedCommission, paymentTypeMap);
+  const commission = paymentSync.commission;
   const netProfit = roundMoney(amount - commission - costTotal);
   const products = positions.map((position: JsonRecord) => {
     const assortment = asRecord(position.assortment);
@@ -3351,8 +3765,10 @@ function mapMoySkladReportDocument(
     customerInn: asString(agent.inn),
     customerAddress: asString(agent.actualAddress ?? agent.legalAddress),
     employeeName: getReportTextAttribute(row, "EMPLOYEE", documentType),
-    paymentType: getReportPaymentType(row),
-    comment: asString(row.description),
+    paymentType: paymentSync.paymentType,
+    paymentTypeCorrected: paymentSync.paymentTypeCorrected,
+    commissionCorrected: paymentSync.commissionCorrected,
+    comment: paymentSync.comment,
     webUrl: `https://online.moysklad.ru/app/#${documentType}/edit?id=${encodeURIComponent(asString(row.id))}`,
     productText: products.map((item: { name: string; quantity: number }) => `${item.name} x ${item.quantity}`).join(", "),
     products,
@@ -3422,7 +3838,22 @@ function sanitizeSalesReportForUser(report: { rows: Array<Record<string, unknown
   };
 }
 
-async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
+function prepareSalesReportResponse(
+  report: { rows: Array<Record<string, unknown>>; canViewProfit: boolean; totals?: JsonRecord; dateFrom?: string; dateTo?: string },
+  user: CrmUser | null,
+  includeProfitForInternalCalculation: boolean,
+) {
+  if (includeProfitForInternalCalculation) {
+    return { ...report, canViewProfit: true, canEditSales: false };
+  }
+  return { ...sanitizeSalesReportForUser(report, user), canEditSales: canEditReportSales(user) };
+}
+
+async function getMoySkladSalesReport(
+  url: URL,
+  user?: CrmUser | null,
+  options: { includeProfitForInternalCalculation?: boolean } = {},
+) {
   const dateFrom = normalizeReportDate(url.searchParams.get("dateFrom") || "", "from");
   const dateTo = normalizeReportDate(url.searchParams.get("dateTo") || "", "to");
   const requested = url.searchParams.get("documentType") || "";
@@ -3431,7 +3862,7 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
   const customerType = url.searchParams.get("customerType") || "";
   const search = (url.searchParams.get("search") || "").trim().toLowerCase();
   const cacheKey = [
-    "currency-v2",
+    "currency-v5-retail-customer-type",
     dateFrom,
     dateTo,
     documentTypes.join(","),
@@ -3442,10 +3873,14 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
   ].join("|");
   const cached = salesReportCache.get(cacheKey);
   if (cached && Date.now() - cached.createdAt < SALES_REPORT_CACHE_TTL_MS) {
-    return { ...sanitizeSalesReportForUser(cached.value, user || null), canEditSales: canEditReportSales(user || null) };
+    return prepareSalesReportResponse(cached.value, user || null, options.includeProfitForInternalCalculation === true);
   }
 
-  const currenciesByHref = await getMoySkladAccountingCurrencies();
+  const [currenciesByHref, remotePaymentTypes] = await Promise.all([
+    getMoySkladAccountingCurrencies(),
+    getMoySkladCustomEntityOptions(String(process.env.MOYSKLAD_PAYMENT_TYPE_CUSTOM_ENTITY_ID || "").trim(), paymentTypes),
+  ]);
+  const reportPaymentTypeMap = makeReportPaymentTypeMap(remotePaymentTypes);
   const groups: JsonRecord[][] = [];
   for (const type of documentTypes) {
     groups.push(await loadMoySkladDocuments(type, dateFrom, dateTo, {
@@ -3454,7 +3889,7 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
     }));
     if (documentTypes.length > 1) await sleep(120);
   }
-  let rows = groups.flatMap((group, index) => group.map((row) => mapMoySkladReportDocument(row, documentTypes[index], currenciesByHref)));
+  let rows = groups.flatMap((group, index) => group.map((row) => mapMoySkladReportDocument(row, documentTypes[index], currenciesByHref, reportPaymentTypeMap)));
   if (customerType) rows = rows.filter((row) => row.customerType === customerType);
   if (search) {
     const first = rows.find((row) => [row.customerName, row.customerPhone, row.customerInn, row.name, row.productText].join(" ").toLowerCase().includes(search));
@@ -3478,7 +3913,7 @@ async function getMoySkladSalesReport(url: URL, user?: CrmUser | null) {
     canViewProfit: true,
   };
   salesReportCache.set(cacheKey, { value: report, createdAt: Date.now() });
-  return { ...sanitizeSalesReportForUser(report, user || null), canEditSales: canEditReportSales(user || null) };
+  return prepareSalesReportResponse(report, user || null, options.includeProfitForInternalCalculation === true);
 }
 
 async function updateReportSalePositionPrice(payload: JsonRecord) {
@@ -4564,11 +4999,13 @@ async function getMoySkladEmployeesForPayroll() {
     });
   }).map((value) => {
     const row = asRecord(value);
+    const storedPayroll = parseMarkedJsonFromDescription(row.description, PAYROLL_CONFIG_START, PAYROLL_CONFIG_END);
     return {
       id: asString(row.id) || getIdFromHref(asString(asRecord(row.meta).href)),
       href: asString(asRecord(row.meta).href),
       name: asString(row.name),
-      payroll: parsePayrollConfig(row.description),
+      payroll: normalizePayrollConfig(storedPayroll || { enabled: false }),
+      payrollConfigured: Boolean(storedPayroll),
     };
   }).filter((employee) => employee.href);
 }
@@ -4590,17 +5027,19 @@ async function getCrmUsersForPayroll(data: AppData) {
 }
 
 function mergePayrollEmployeeMeta(
-  employee: { id: string; href: string; name: string; payroll: Record<string, unknown> },
+  employee: { id: string; href: string; name: string; payroll: Record<string, unknown>; payrollConfigured?: boolean },
   crmUsers: Array<{ name: string; login: string; position: string; salary: number }>,
 ) {
   const crmUser = crmUsers.find((user) => normalizeEmployeeKey(user.name) === normalizeEmployeeKey(employee.name) || normalizeEmployeeKey(user.login) === normalizeEmployeeKey(employee.name));
   const payroll = normalizePayrollConfig(employee.payroll);
+  const crmSalary = Number.isFinite(Number(crmUser?.salary)) ? Number(crmUser?.salary) : payroll.monthlySalary;
   return {
     ...employee,
     payroll: {
       ...payroll,
+      enabled: employee.payrollConfigured ? payroll.enabled : crmSalary > 0 || payroll.enabled,
       customPosition: asString(crmUser?.position).trim() || payroll.customPosition,
-      monthlySalary: Number.isFinite(Number(crmUser?.salary)) ? Number(crmUser?.salary) : payroll.monthlySalary,
+      monthlySalary: crmSalary,
     },
   };
 }
@@ -4682,7 +5121,7 @@ async function getPayrollReport(url: URL, data?: AppData) {
   const fallbackData = data ?? seedData();
   const [employees, report, crmUsers] = await Promise.all([
     getMoySkladEmployeesForPayroll(),
-    getMoySkladSalesReport(url),
+    getMoySkladSalesReport(url, null, { includeProfitForInternalCalculation: true }),
     getCrmUsersForPayroll(fallbackData),
   ]);
   const rows = employees.map((employee) => {
@@ -4691,13 +5130,16 @@ async function getPayrollReport(url: URL, data?: AppData) {
     const sales = report.rows.filter((row) => payrollMatchesEmployee(row, mergedEmployee));
     const revenue = roundMoney(sales.reduce((sum, sale) => sum + asNumber(sale.amount), 0));
     const profit = roundMoney(sales.reduce((sum, sale) => sum + asNumber(sale.netProfit), 0));
+    const categoryBonus = roundMoney(calculatePayrollCategoryBonus(sales));
     const fixedSalary = payroll.enabled && ["salary", "salary_percent", "salary_category_bonus"].includes(payroll.scheme)
       ? calculateProratedMonthlySalary(payroll.monthlySalary, dateFrom, dateTo)
       : 0;
     const percentSource = payroll.percentBase === "profit" ? Math.max(0, profit) : Math.max(0, revenue);
-    const commission = payroll.enabled && ["percent", "salary_percent"].includes(payroll.scheme)
-      ? roundMoney(percentSource * payroll.percent / 100)
-      : 0;
+    const commission = payroll.enabled && ["category_bonus", "salary_category_bonus"].includes(payroll.scheme)
+      ? categoryBonus
+      : payroll.enabled && ["percent", "salary_percent"].includes(payroll.scheme)
+        ? roundMoney(percentSource * payroll.percent / 100)
+        : 0;
     return {
       id: mergedEmployee.id,
       href: mergedEmployee.href,
@@ -4706,7 +5148,7 @@ async function getPayrollReport(url: URL, data?: AppData) {
       documents: sales.length,
       revenue,
       profit,
-      categoryBonus: 0,
+      categoryBonus,
       sales: sales.map((sale) => ({
         id: sale.id,
         name: sale.name,
@@ -4823,7 +5265,36 @@ function getAttendanceStoreSchedule(schedule: AttendanceSchedule, store?: Attend
     label: store?.name || "По умолчанию",
     workStartsAt: schedule.workStartsAt,
     workEndsAt: schedule.workEndsAt,
+    workDays: [1, 2, 3, 4, 5, 6, 7],
   };
+}
+
+function getAttendanceIsoWeekday(date: string) {
+  const parsed = new Date(`${date.slice(0, 10)}T12:00:00+06:00`);
+  const day = parsed.getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+function attendanceCalendarEntryApplies(entry: AttendanceCalendarEntry, date: string, userId: string, store?: AttendanceStore | null) {
+  if (date < entry.dateFrom || date > entry.dateTo) return false;
+  if (entry.userId && entry.userId !== userId) return false;
+  if (!entry.storeId) return true;
+  if (!store) return false;
+  return entry.storeId === store.id
+    || slugifyAttendanceBranch(entry.storeId) === slugifyAttendanceBranch(store.id)
+    || slugifyAttendanceBranch(entry.storeId) === slugifyAttendanceBranch(store.name);
+}
+
+function findAttendanceCalendarEntry(data: AppData, date: string, userId: string, store?: AttendanceStore | null) {
+  const priority: Record<AttendanceCalendarKind, number> = { leave: 4, holiday: 3, day_off: 2, short_day: 1 };
+  return data.attendanceCalendar
+    .filter((entry) => attendanceCalendarEntryApplies(entry, date, userId, store))
+    .sort((left, right) => priority[right.kind] - priority[left.kind])[0] || null;
+}
+
+function isAttendanceScheduledWorkday(data: AppData, date: string, store?: AttendanceStore | null) {
+  const schedule = getAttendanceStoreSchedule(data.attendanceSchedule, store);
+  return normalizeAttendanceWorkDays(schedule.workDays).includes(getAttendanceIsoWeekday(date));
 }
 
 function combineAttendanceDateTime(source: string, clock: string) {
@@ -4833,8 +5304,12 @@ function combineAttendanceDateTime(source: string, clock: string) {
   return date;
 }
 
-function getAttendanceLateMinutes(record: AttendanceRecord, schedule: AttendanceSchedule, store?: AttendanceStore | null) {
-  const startAt = combineAttendanceDateTime(record.checkInTime, getAttendanceStoreSchedule(schedule, store).workStartsAt);
+function getAttendanceLateMinutes(record: AttendanceRecord, data: AppData, store?: AttendanceStore | null) {
+  const date = record.checkInTime.slice(0, 10);
+  const calendarEntry = findAttendanceCalendarEntry(data, date, record.userId, store);
+  if (calendarEntry && ["holiday", "day_off", "leave"].includes(calendarEntry.kind)) return 0;
+  if (!isAttendanceScheduledWorkday(data, date, store)) return 0;
+  const startAt = combineAttendanceDateTime(record.checkInTime, getAttendanceStoreSchedule(data.attendanceSchedule, store).workStartsAt);
   const checkIn = new Date(record.checkInTime);
   return Math.max(0, Math.round((checkIn.getTime() - startAt.getTime()) / 60000));
 }
@@ -4845,7 +5320,11 @@ function autoCloseAttendanceRecords(data: AppData) {
   for (const record of data.attendanceRecords) {
     if (record.status !== "open") continue;
     const store = data.attendanceStores.find((item) => item.id === record.storeId) || null;
-    const endAt = combineAttendanceDateTime(record.checkInTime, getAttendanceStoreSchedule(data.attendanceSchedule, store).workEndsAt);
+    const calendarEntry = findAttendanceCalendarEntry(data, record.checkInTime.slice(0, 10), record.userId, store);
+    const workEndsAt = calendarEntry?.kind === "short_day" && calendarEntry.workEndsAt
+      ? calendarEntry.workEndsAt
+      : getAttendanceStoreSchedule(data.attendanceSchedule, store).workEndsAt;
+    const endAt = combineAttendanceDateTime(record.checkInTime, workEndsAt);
     if (now.getTime() < endAt.getTime()) continue;
     record.status = "closed";
     record.checkOutTime = endAt.toISOString();
@@ -4861,8 +5340,8 @@ function getDefaultAttendanceBranches(schedule: AttendanceSchedule): AttendanceS
   const fallbackBranches = schedule.branches.length
     ? schedule.branches
     : [
-        { key: "ayu-grand", label: "Аю-Гранд", workStartsAt: "09:00", workEndsAt: "18:00" },
-        { key: "besh-sary", label: "Беш-Сары", workStartsAt: "09:00", workEndsAt: "19:00" },
+        { key: "ayu-grand", label: "Аю-Гранд", workStartsAt: "09:00", workEndsAt: "18:00", workDays: [1, 2, 3, 4, 5, 6, 7] },
+        { key: "besh-sary", label: "Беш-Сары", workStartsAt: "09:00", workEndsAt: "19:00", workDays: [1, 2, 3, 4, 5, 6, 7] },
       ];
 
   return fallbackBranches.map((branch) => ({
@@ -4885,6 +5364,210 @@ function resolveAttendanceBranch(data: AppData, storeId: string) {
   return branches.find((item) => item.id === storeId || item.name === storeId || slugifyAttendanceBranch(item.name) === slugifyAttendanceBranch(storeId))
     || branches[0]
     || null;
+}
+
+function getBishkekAttendanceDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bishkek",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function resolveAttendanceUserStore(data: AppData, user: Pick<CrmUser, "branches">) {
+  const branches = getAttendanceBranches(data);
+  const canonicalBranches = new Set(normalizeCrmBranches(user.branches).map(canonicalSalesBranch).filter(Boolean));
+  const exactBranches = new Set(normalizeCrmBranches(user.branches).map(slugifyAttendanceBranch));
+  return branches.find((store) => {
+    const canonicalStore = canonicalSalesBranch(store.id) ?? canonicalSalesBranch(store.name) ?? canonicalSalesBranch(store.branch);
+    return Boolean(canonicalStore && canonicalBranches.has(canonicalStore))
+      || exactBranches.has(slugifyAttendanceBranch(store.id))
+      || exactBranches.has(slugifyAttendanceBranch(store.name))
+      || exactBranches.has(slugifyAttendanceBranch(store.branch));
+  }) || branches[0] || null;
+}
+
+function getAttendanceDayStatus(data: AppData, user: Pick<CrmUser, "id" | "branches">, date = getBishkekAttendanceDate()) {
+  const store = resolveAttendanceUserStore(data, user);
+  const entry = findAttendanceCalendarEntry(data, date, user.id, store);
+  const codes: Record<AttendanceCalendarKind, string> = { holiday: "П", day_off: "В", leave: "ОТ", short_day: "СД" };
+  const labels: Record<AttendanceCalendarKind, string> = {
+    holiday: "Государственный праздник",
+    day_off: "Выходной",
+    leave: "Согласованный отгул",
+    short_day: "Сокращённый день",
+  };
+  if (entry) {
+    return {
+      code: codes[entry.kind],
+      kind: entry.kind,
+      label: entry.title || labels[entry.kind],
+      workingDay: entry.kind === "short_day",
+      workEndsAt: entry.workEndsAt,
+    };
+  }
+  if (!isAttendanceScheduledWorkday(data, date, store)) {
+    return { code: "В", kind: "day_off", label: "Выходной по графику", workingDay: false, workEndsAt: "" };
+  }
+  return { code: "", kind: "workday", label: "Рабочий день", workingDay: true, workEndsAt: getAttendanceStoreSchedule(data.attendanceSchedule, store).workEndsAt };
+}
+
+type AttendanceNetworkBranch = {
+  key: SalesBranchKey;
+  name: string;
+  rules: string[];
+};
+
+function normalizeClientIp(value: unknown) {
+  let ip = asString(value).split(",")[0]?.trim().toLowerCase() || "";
+  if (ip.startsWith("[")) ip = ip.slice(1, ip.indexOf("]") > 0 ? ip.indexOf("]") : undefined);
+  if (ip.startsWith("::ffff:")) ip = ip.slice("::ffff:".length);
+  if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(ip)) ip = ip.replace(/:\d+$/, "");
+  return ip;
+}
+
+function getAttendanceClientIp(request: NextRequest) {
+  return normalizeClientIp(
+    request.headers.get("cf-connecting-ip")
+      || request.headers.get("true-client-ip")
+      || request.headers.get("x-forwarded-for")
+      || request.headers.get("x-real-ip"),
+  );
+}
+
+function parseAttendanceIpRules(...values: Array<string | undefined>) {
+  return [...new Set(values.flatMap((value) => String(value || "").split(/[\s,;]+/)).map(normalizeClientIp).filter(Boolean))];
+}
+
+function ipv4Number(value: string) {
+  const parts = value.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return parts.reduce((result, part) => result * 256 + part, 0);
+}
+
+function ipMatchesAttendanceRule(ip: string, rule: string) {
+  if (!ip || !rule) return false;
+  const [network, prefixText] = rule.split("/");
+  if (prefixText === undefined) return ip === normalizeClientIp(network);
+  const prefix = Number(prefixText);
+  const ipNumber = ipv4Number(ip);
+  const networkNumber = ipv4Number(normalizeClientIp(network));
+  if (ipNumber === null || networkNumber === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+  const blockSize = 2 ** (32 - prefix);
+  return Math.floor(ipNumber / blockSize) === Math.floor(networkNumber / blockSize);
+}
+
+async function getAttendanceNetworkBranches(): Promise<AttendanceNetworkBranch[]> {
+  const settings = await getAttendanceNetworkSettings();
+  return [
+    {
+      key: "ayu",
+      name: "Аю-Гранд",
+      rules: parseAttendanceIpRules(settings.ayu.join(",")),
+    },
+    {
+      key: "besh",
+      name: "Беш-Сары",
+      rules: parseAttendanceIpRules(settings.besh.join(",")),
+    },
+  ];
+}
+
+function resolveAttendanceBranchByKey(data: AppData, key: SalesBranchKey) {
+  const existingStore = getAttendanceBranches(data).find((store) => canonicalSalesBranch(store.id) === key
+    || canonicalSalesBranch(store.branch) === key
+    || canonicalSalesBranch(store.name) === key);
+  if (existingStore) return existingStore;
+
+  const scheduleBranch = data.attendanceSchedule.branches.find((branch) => canonicalSalesBranch(branch.key) === key
+    || canonicalSalesBranch(branch.label) === key);
+  const name = scheduleBranch?.label || (key === "besh" ? "Беш-Сары" : "Аю-Гранд");
+
+  return {
+    id: key === "besh" ? "besh-sary" : "ayu-grand",
+    name,
+    branch: name,
+    address: "",
+    latitude: 0,
+    longitude: 0,
+    allowedRadiusMeters: 0,
+  } satisfies AttendanceStore;
+}
+
+function canUserUseAttendanceBranch(user: Pick<CrmUser, "branches" | "role">, key: SalesBranchKey) {
+  const userBranches = getUserSalesBranches(user);
+  if (!userBranches.size) return user.role === "admin" || user.role === "owner";
+  return userBranches.has(key);
+}
+
+function isAttendanceParticipant(user: Pick<CrmUser, "role">) {
+  return ["manager", "seller", "logistics", "accountant", "employee"].includes(user.role);
+}
+
+function maskAttendanceIp(ip: string) {
+  const ipv4 = ip.split(".");
+  if (ipv4.length === 4) return `${ipv4[0]}.${ipv4[1]}.${ipv4[2]}.*`;
+  if (ip.includes(":")) return `${ip.split(":").slice(0, 3).join(":")}:…`;
+  return ip ? "определён" : "не определён";
+}
+
+async function getAttendanceNetworkAccess(request: NextRequest, user: CrmUser, data: AppData) {
+  const clientIp = getAttendanceClientIp(request);
+  const branches = await getAttendanceNetworkBranches();
+  const configured = branches.some((branch) => branch.rules.length > 0);
+  const matchedBranch = branches.find((branch) => branch.rules.some((rule) => ipMatchesAttendanceRule(clientIp, rule))) || null;
+  const store = matchedBranch ? resolveAttendanceBranchByKey(data, matchedBranch.key) : null;
+
+  if (!configured) {
+    return {
+      configured: false,
+      allowed: false,
+      clientIp,
+      clientIpMasked: maskAttendanceIp(clientIp),
+      branchKey: null,
+      branchName: "",
+      store: null,
+      message: "Главный администратор ещё не зафиксировал внешний IP офисного Wi‑Fi.",
+    };
+  }
+
+  if (!matchedBranch) {
+    return {
+      configured: true,
+      allowed: false,
+      clientIp,
+      clientIpMasked: maskAttendanceIp(clientIp),
+      branchKey: null,
+      branchName: "",
+      store: null,
+      message: "Подключитесь к Wi‑Fi своего филиала и проверьте сеть повторно.",
+    };
+  }
+
+  if (!canUserUseAttendanceBranch(user, matchedBranch.key)) {
+    return {
+      configured: true,
+      allowed: false,
+      clientIp,
+      clientIpMasked: maskAttendanceIp(clientIp),
+      branchKey: matchedBranch.key,
+      branchName: matchedBranch.name,
+      store,
+      message: `Сеть ${matchedBranch.name} обнаружена, но сотруднику не выдан доступ к этому филиалу.`,
+    };
+  }
+
+  return {
+    configured: true,
+    allowed: Boolean(store),
+    clientIp,
+    clientIpMasked: maskAttendanceIp(clientIp),
+    branchKey: matchedBranch.key,
+    branchName: store?.name || matchedBranch.name,
+    store,
+    message: store ? `Офисная сеть ${store.name} подтверждена.` : `Для филиала ${matchedBranch.name} не найдена точка посещаемости.`,
+  };
 }
 
 function getLoyaltyConfig() {
@@ -4960,6 +5643,70 @@ function validateTelegramReceiptInput(receiptPhoto: JsonRecord) {
   const mimeType = asString(receiptPhoto.mimeType);
   if (!data || !/^image\/(jpeg|png|webp)$/i.test(mimeType)) throw new Response("Добавьте корректную фотографию чека.", { status: 400 });
   if (data.length > 7 * 1024 * 1024) throw new Response("Обработанное фото чека слишком большое.", { status: 413 });
+}
+
+function validateAttendanceSelfie(value: unknown) {
+  const selfie = asRecord(value);
+  const data = asString(selfie.data);
+  if (!data || asString(selfie.mimeType) !== "image/jpeg") {
+    throw new Response("Сделайте селфи через фронтальную камеру.", { status: 400 });
+  }
+  if (data.length > 4 * 1024 * 1024) {
+    throw new Response("Селфи слишком большое. Сделайте снимок повторно.", { status: 413 });
+  }
+  return selfie;
+}
+
+function getTelegramAttendanceConfig() {
+  const token = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const chatId = String(process.env.TELEGRAM_ATTENDANCE_CHAT_ID || "").trim();
+  if (!token || !chatId) {
+    throw new Response("Не настроены TELEGRAM_BOT_TOKEN и TELEGRAM_ATTENDANCE_CHAT_ID.", { status: 503 });
+  }
+  return { token, chatId };
+}
+
+function formatAttendanceTelegramTime(value: string) {
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Asia/Bishkek",
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function formatAttendanceDuration(minutes: number) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  return `${Math.floor(value / 60)} ч ${value % 60} мин`;
+}
+
+async function sendTelegramAttendanceSelfie(input: {
+  selfie: JsonRecord;
+  action: "open" | "close";
+  userName: string;
+  storeName: string;
+  timestamp: string;
+  clientIp: string;
+  workMinutes?: number;
+}) {
+  const { token, chatId } = getTelegramAttendanceConfig();
+  const caption = [
+    input.action === "open" ? "🟢 ОТКРЫТИЕ СМЕНЫ" : "🔴 ЗАКРЫТИЕ СМЕНЫ",
+    `Сотрудник: ${input.userName}`,
+    `Филиал: ${input.storeName || "Не указан"}`,
+    `Время: ${formatAttendanceTelegramTime(input.timestamp)}`,
+    ...(input.action === "close" ? [`Отработано: ${formatAttendanceDuration(input.workMinutes || 0)}`] : []),
+    `IP: ${input.clientIp || "не определён"}`,
+    input.action === "open" ? "Проверка офисной сети: успешно" : "Селфи при завершении смены",
+  ].join("\n");
+  const buffer = Buffer.from(asString(input.selfie.data), "base64");
+  const { response, payload } = await sendTelegramPhoto(token, chatId, buffer, input.selfie, caption);
+  if (!response.ok || payload.ok !== true) {
+    const message = asString(payload.description, `Telegram вернул ${response.status}`);
+    throw new Response(`Не удалось отправить селфи в Telegram: ${message}`, { status: 502 });
+  }
+  const messageId = asNumber(asRecord(payload.result).message_id);
+  if (!messageId) throw new Response("Telegram не вернул идентификатор селфи.", { status: 502 });
+  return messageId;
 }
 
 function getTelegramReceiptConfig() {
@@ -5190,6 +5937,7 @@ function getMoySkladMonitorStats() {
     agentConfigured: Boolean(process.env.MOYSKLAD_AGENT_HREF),
     storeConfigured: Boolean(process.env.MOYSKLAD_STORE_HREF),
     retailStoreConfigured: Boolean(process.env.MOYSKLAD_RETAIL_STORE_HREF),
+    rateLimiter: getMoySkladRateLimiterStats(),
   };
 }
 
@@ -6430,7 +7178,8 @@ async function handleCrm(request: NextRequest, parts: string[], data: AppData) {
   }
   if (parts[1] === "session" && request.method === "GET") {
     const user = getUserByRequest(request, data);
-    return json({ user: user ? publicUser(user) : null });
+    if (!user) return json({ user: null });
+    return json({ user: publicUser(await requireFreshUser(request, data)) });
   }
   if (parts[1] === "news" && request.method === "GET") {
     requireUser(request, data);
@@ -6579,16 +7328,90 @@ async function handleExpenses(request: NextRequest, parts: string[], data: AppDa
 }
 
 async function handleAttendance(request: NextRequest, parts: string[], data: AppData) {
-  const user = requireUser(request, data);
+  const user = await requireFreshUser(request, data);
   if (autoCloseAttendanceRecords(data)) {
     await writeData(data);
   }
   if (parts[1] === "status" && request.method === "GET") {
     const openRecord = data.attendanceRecords.find((record) => record.userId === user.id && record.status === "open");
-    return json({ status: openRecord ? "working" : "not_working", openRecord: openRecord ? currentAttendanceRecord(openRecord) : null, now: new Date().toISOString() });
+    return json({
+      status: openRecord ? "working" : "not_working",
+      openRecord: openRecord ? currentAttendanceRecord(openRecord) : null,
+      dayStatus: getAttendanceDayStatus(data, user),
+      now: new Date().toISOString(),
+    });
+  }
+  if (parts[1] === "network-settings") {
+    if (user.role !== "admin") return error(403, "Управлять IP может только главный администратор");
+    if (request.method === "GET") {
+      const settings = await getAttendanceNetworkSettings({ fresh: true });
+      const response = json({ settings, currentIp: getAttendanceClientIp(request) });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    }
+    if (request.method === "PUT") {
+      return json({ settings: await saveAttendanceNetworkSettings(await body(request)) });
+    }
+  }
+  if (parts[1] === "network-status" && request.method === "GET") {
+    const access = await getAttendanceNetworkAccess(request, user, data);
+    const response = json({
+      configured: access.configured,
+      allowed: access.allowed,
+      clientIp: access.clientIpMasked,
+      branchKey: access.branchKey,
+      branchName: access.branchName,
+      storeId: access.store?.id || "",
+      message: access.message,
+    });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  }
+  if (parts[1] === "calendar") {
+    if (user.role !== "admin") return error(403, "Управлять календарём может только главный администратор");
+    if (request.method === "POST") {
+      const payload = await body(request);
+      const kinds: AttendanceCalendarKind[] = ["holiday", "day_off", "leave", "short_day"];
+      const kind = kinds.includes(payload.kind as AttendanceCalendarKind) ? payload.kind as AttendanceCalendarKind : null;
+      const dateFrom = asString(payload.dateFrom).slice(0, 10);
+      const dateTo = asString(payload.dateTo, dateFrom).slice(0, 10);
+      const userId = asString(payload.userId);
+      const storeId = asString(payload.storeId);
+      const workEndsAt = asString(payload.workEndsAt);
+      if (!kind) return error(400, "Выберите тип дня");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo) || dateFrom > dateTo) {
+        return error(400, "Укажите корректный период");
+      }
+      if (kind === "leave" && !userId) return error(400, "Для отгула выберите сотрудника");
+      if (kind === "short_day" && !/^\d{2}:\d{2}$/.test(workEndsAt)) return error(400, "Укажите время окончания сокращённого дня");
+      const entry: AttendanceCalendarEntry = {
+        id: randomUUID(),
+        kind,
+        dateFrom,
+        dateTo,
+        userId: kind === "leave" ? userId : "",
+        storeId: kind === "leave" ? "" : storeId,
+        title: asString(payload.title).trim(),
+        workEndsAt: kind === "short_day" ? workEndsAt : "",
+        createdAt: new Date().toISOString(),
+        createdBy: user.name,
+      };
+      data.attendanceCalendar.unshift(entry);
+      await writeData(data);
+      return json({ entry }, 201);
+    }
+    if (parts[2] && request.method === "DELETE") {
+      const index = data.attendanceCalendar.findIndex((entry) => entry.id === parts[2]);
+      if (index < 0) return error(404, "Запись календаря не найдена");
+      data.attendanceCalendar.splice(index, 1);
+      await writeData(data);
+      return json({ ok: true });
+    }
   }
   if (parts[1] === "reports" && request.method === "GET") {
     const managedUsers = uniqueManagedUsers(await getManagedCrmUsers(data));
+    const attendanceUsers = managedUsers.filter(isAttendanceParticipant);
+    const attendanceUserIds = new Set(attendanceUsers.map((item) => item.id));
     const attendanceBranches = getAttendanceBranches(data);
     const url = new URL(request.url);
     const dateFrom = url.searchParams.get("date_from") || url.searchParams.get("dateFrom") || "";
@@ -6598,6 +7421,7 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
     const rows = data.attendanceRecords
       .map(currentAttendanceRecord)
       .filter((row) => {
+        if (!attendanceUserIds.has(row.userId)) return false;
         if (userId && row.userId !== userId) return false;
         if (storeId && row.storeId !== storeId) return false;
         const rowDate = row.checkInTime.slice(0, 10);
@@ -6605,11 +7429,19 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
         if (dateTo && rowDate > dateTo) return false;
         return true;
       });
+    const calendar = data.attendanceCalendar.filter((entry) => {
+      if (dateFrom && entry.dateTo < dateFrom) return false;
+      if (dateTo && entry.dateFrom > dateTo) return false;
+      if (userId && entry.userId && entry.userId !== userId) return false;
+      if (storeId && entry.storeId && slugifyAttendanceBranch(entry.storeId) !== slugifyAttendanceBranch(storeId)) return false;
+      return true;
+    });
     return json({
       rows,
+      calendar,
       events: [],
       stores: attendanceBranches,
-      users: managedUsers,
+      users: attendanceUsers,
       totals: {
         records: rows.length,
         open: rows.filter((row) => row.status === "open").length,
@@ -6620,102 +7452,22 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
       schedule: data.attendanceSchedule,
     });
   }
-  if (parts[1] === "manual" && request.method === "POST") {
-    if (!["admin", "owner", "manager"].includes(user.role)) {
-      return error(403, "Только менеджер или выше может отмечать сотрудников вручную");
-    }
+  if (parts[1] === "open" && request.method === "POST") {
     const payload = await body(request);
-    const managedUsers = uniqueManagedUsers(await getManagedCrmUsers(data));
-    const targetUser = managedUsers.find((item) => item.id === payload.userId);
-    if (!targetUser) return error(404, "Сотрудник не найден");
-    const store = resolveAttendanceBranch(data, asString(payload.storeId));
-    if (!store) return error(400, "Не найден филиал для отметки");
-    const action = asString(payload.action, "check_in");
-    const timestamp = asString(payload.timestamp, new Date().toISOString());
-
-    if (action === "check_in") {
-      const existingOpen = data.attendanceRecords.find((item) => item.userId === targetUser.id && item.status === "open");
-      if (existingOpen) return error(400, "У сотрудника уже есть открытая запись");
-      const record: AttendanceRecord = {
-        id: randomUUID(),
-        userId: targetUser.id,
-        userName: targetUser.name,
-        storeId: store.id,
-        storeName: store.name,
-        checkInTime: timestamp,
-        checkOutTime: "",
-        checkInDistanceMeters: null,
-        checkOutDistanceMeters: null,
-        totalWorkMinutes: 0,
-        currentWorkMinutes: 0,
-        lateMinutes: 0,
-        status: "open",
-        source: "admin",
-      };
-      record.lateMinutes = getAttendanceLateMinutes(record, data.attendanceSchedule, store);
-      data.attendanceRecords.unshift(record);
-      await writeData(data);
-      return json({ ok: true, action: "check_in", message: "Приход отмечен", status: "working", record, store, distanceMeters: 0 });
+    const selfie = validateAttendanceSelfie(payload.selfie);
+    if (!isAttendanceParticipant(user)) return error(403, "Эта роль не участвует в табеле посещаемости");
+    const existingOpen = data.attendanceRecords.find((item) => item.userId === user.id && item.status === "open");
+    if (existingOpen) return error(409, "У сотрудника уже есть открытая смена");
+    const networkAccess = await getAttendanceNetworkAccess(request, user, data);
+    if (!networkAccess.allowed) {
+      return error(networkAccess.configured ? 403 : 400, networkAccess.message);
     }
-
-    const record = data.attendanceRecords.find((item) => item.userId === targetUser.id && item.status === "open");
-    if (!record) return error(400, "У сотрудника нет открытой записи");
-    record.status = "closed";
-    record.checkOutTime = timestamp;
-    record.totalWorkMinutes = minutesBetween(record.checkInTime, record.checkOutTime);
-    record.currentWorkMinutes = record.totalWorkMinutes;
-    record.checkOutDistanceMeters = null;
-    await writeData(data);
-    return json({ ok: true, action: "check_out", message: "Уход отмечен", status: "not_working", record, store, distanceMeters: 0 });
-  }
-  if (parts[1] === "stores") {
-    if (!["admin", "owner", "manager"].includes(user.role)) {
-      return error(403, "Нет доступа к рабочим точкам");
-    }
-    const id = parts[2] || "";
-    if (!id && request.method === "GET") return json({ stores: getAttendanceBranches(data) });
-    if (!id && request.method === "POST") {
-      const payload = await body(request);
-      const store: AttendanceStore = {
-        id: randomUUID(),
-        name: asString(payload.name),
-        branch: asString(payload.branch),
-        address: asString(payload.address),
-        latitude: asNumber(payload.latitude),
-        longitude: asNumber(payload.longitude),
-        allowedRadiusMeters: asNumber(payload.allowedRadiusMeters, 100),
-      };
-      data.attendanceStores.unshift(store);
-      await writeData(data);
-      return json({ store }, 201);
-    }
-    const index = data.attendanceStores.findIndex((store) => store.id === id);
-    if (index < 0) return error(404, "Точка не найдена");
-    if (parts[3] === "generate-qr" && request.method === "POST") return json({ store: data.attendanceStores[index] });
-    if (parts[3] === "qr" && request.method === "DELETE") return json({ store: data.attendanceStores[index] });
-    if (request.method === "PUT") {
-      data.attendanceStores[index] = { ...data.attendanceStores[index], ...(await body(request)) };
-      await writeData(data);
-      return json({ store: data.attendanceStores[index] });
-    }
-    if (request.method === "DELETE") {
-      const [store] = data.attendanceStores.splice(index, 1);
-      await writeData(data);
-      return json({ ok: true, store });
-    }
-  }
-  if ((parts[1] === "scan" || parts[1] === "open" || parts[1] === "admin-open") && request.method === "POST") {
-    if (parts[1] === "admin-open" && !["admin", "owner", "manager"].includes(user.role)) {
-      return error(403, "Нет доступа");
-    }
-    const payload = await body(request);
-    const targetUser = parts[1] === "admin-open" ? data.users.find((item) => item.id === payload.userId) || user : user;
-    const store = resolveAttendanceBranch(data, asString(payload.storeId));
+    const store = networkAccess.store;
     if (!store) return error(400, "Не найден филиал для отметки");
     const record: AttendanceRecord = {
       id: randomUUID(),
-      userId: targetUser.id,
-      userName: targetUser.name,
+      userId: user.id,
+      userName: user.name,
       storeId: store.id,
       storeName: store.name,
       checkInTime: new Date().toISOString(),
@@ -6726,19 +7478,40 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
       currentWorkMinutes: 0,
       lateMinutes: 0,
       status: "open",
-      source: parts[1] === "admin-open" ? "admin" : "geo",
+      source: "wifi",
     };
-    record.lateMinutes = getAttendanceLateMinutes(record, data.attendanceSchedule, store);
+    record.lateMinutes = getAttendanceLateMinutes(record, data, store);
+    record.telegramOpenMessageId = await sendTelegramAttendanceSelfie({
+      selfie,
+      action: "open",
+      userName: user.name,
+      storeName: store.name,
+      timestamp: record.checkInTime,
+      clientIp: networkAccess.clientIpMasked,
+    });
     data.attendanceRecords.unshift(record);
     await writeData(data);
     return json({ ok: true, action: "check_in", message: "Смена открыта", status: "working", record, store, distanceMeters: 0 });
   }
   if (parts[1] === "close" && request.method === "POST") {
+    const payload = await body(request);
+    const selfie = validateAttendanceSelfie(payload.selfie);
     const record = data.attendanceRecords.find((item) => item.userId === user.id && item.status === "open");
     if (!record) return error(400, "Открытой смены нет");
+    const checkOutTime = new Date().toISOString();
+    const totalWorkMinutes = minutesBetween(record.checkInTime, checkOutTime);
+    record.telegramCloseMessageId = await sendTelegramAttendanceSelfie({
+      selfie,
+      action: "close",
+      userName: user.name,
+      storeName: record.storeName,
+      timestamp: checkOutTime,
+      clientIp: maskAttendanceIp(getAttendanceClientIp(request)),
+      workMinutes: totalWorkMinutes,
+    });
     record.status = "closed";
-    record.checkOutTime = new Date().toISOString();
-    record.totalWorkMinutes = minutesBetween(record.checkInTime, record.checkOutTime);
+    record.checkOutTime = checkOutTime;
+    record.totalWorkMinutes = totalWorkMinutes;
     record.currentWorkMinutes = record.totalWorkMinutes;
     record.checkOutDistanceMeters = 0;
     await writeData(data);
@@ -6746,7 +7519,7 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
     return json({ ok: true, action: "check_out", message: "Смена закрыта", status: "not_working", record, store, distanceMeters: 0 });
   }
   if (parts[1] === "schedule" && request.method === "PUT") {
-    if (!["admin", "owner", "manager"].includes(user.role)) {
+    if (user.role !== "admin") {
       return error(403, "Нет доступа к графику");
     }
     const payload = await body(request);
@@ -6759,6 +7532,7 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
             label: asString(branch?.label || branch?.key),
             workStartsAt: asString(branch?.workStartsAt, data.attendanceSchedule.workStartsAt || "09:00"),
             workEndsAt: asString(branch?.workEndsAt, data.attendanceSchedule.workEndsAt || "18:00"),
+            workDays: normalizeAttendanceWorkDays(branch?.workDays),
           }))
         : data.attendanceSchedule.branches,
     });
@@ -6885,8 +7659,12 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
       });
     }
     if (root === "retail-stores" || root === "stores") {
+      const user = await requireFreshUser(request, data);
       const remote = await getMoySkladRetailStores();
-      return json({ retailStores: remote.length ? remote : data.attendanceStores.map((store) => ({ id: store.id, href: store.id, name: store.name, storeHref: store.id, storeName: store.name })) });
+      const availableStores = remote.length
+        ? remote
+        : data.attendanceStores.map((store) => ({ id: store.id, href: store.id, name: store.name, storeHref: store.id, storeName: store.name }));
+      return json({ retailStores: availableStores.filter((store) => canUserUseRetailStore(user, store)) });
     }
     if (root === "retail-shifts" && request.method === "GET") return json(await getRetailShiftsForApi(url));
     if (root === "retail-fiscal-status" && request.method === "GET") return getRetailFiscalStatusLite(url);
@@ -6897,7 +7675,17 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
       const document = await getRetailDemandById(documentId);
       return json(await triggerRetailFiscalizationSafely(document));
     }
-    if (root === "payment-types") return json({ paymentTypes: await getMoySkladCustomEntityOptions(String(process.env.MOYSKLAD_PAYMENT_TYPE_CUSTOM_ENTITY_ID || "").trim(), paymentTypes) });
+    if (root === "payment-types" && request.method === "GET") {
+      return json({ paymentTypes: await getMoySkladCustomEntityOptions(String(process.env.MOYSKLAD_PAYMENT_TYPE_CUSTOM_ENTITY_ID || "").trim(), paymentTypes) });
+    }
+    if (root === "payment-types" && request.method === "POST") {
+      requireAdmin(request, data);
+      return json({ paymentType: await createMoySkladPaymentType(await body(request)) }, 201);
+    }
+    if (root === "payment-types" && parts[1] && request.method === "PUT") {
+      requireAdmin(request, data);
+      return json({ paymentType: await updateMoySkladPaymentType(parts[1], await body(request)) });
+    }
     if (root === "sales-channels") {
       const salesChannelEntityId = String(process.env.MOYSKLAD_SALES_CHANNEL_CUSTOM_ENTITY_ID || "").trim();
       if (!salesChannelEntityId) return json({ salesChannels: [] });
@@ -6913,14 +7701,16 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
         products: await getProducts(
           url.searchParams.get("search") || "",
           url.searchParams.get("storeHref") || "",
+          request.signal,
         ),
       });
     }
     if (root === "customers") return json({ customers: await getCustomers(url.searchParams.get("search") || "") });
     if (root === "calculate" && request.method === "POST") return json(calculateDraft(await body(request)));
     if (root === "orders" && request.method === "POST") {
-      const user = requireUser(request, data);
-      const payload = await enforceSaleEmployee(await body(request), user);
+      const user = await requireFreshUser(request, data);
+      const branchPayload = await enforceSaleBranch(await body(request), user);
+      const payload = await enforceSaleEmployee(branchPayload, user);
       const requestKey = asString(payload.requestKey).trim();
       if (requestKey && (requestKey.length < 8 || requestKey.length > 100)) {
         return error(400, "Некорректный ключ запроса продажи.");

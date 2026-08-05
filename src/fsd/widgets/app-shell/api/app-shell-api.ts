@@ -8,7 +8,9 @@ export type ShellSessionUser = {
   login: string;
   role: CrmRole;
   position: string;
+  branches: string[];
   permissions: string[];
+  moySkladEmployeeHref?: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -36,7 +38,9 @@ function normalizeSessionUser(value: unknown): ShellSessionUser {
     login: asString(record.login),
     role: asRole(record.role),
     position: asString(record.position),
+    branches: asStringArray(record.branches),
     permissions: asStringArray(record.permissions),
+    moySkladEmployeeHref: asString(record.moySkladEmployeeHref ?? record.moysklad_employee_href) || undefined,
   };
 }
 

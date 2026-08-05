@@ -88,21 +88,21 @@
       ],
       "active": true,
       "passwordHash": "",
-      "moySkladEmployeeHref": ""
+      "moySkladEmployeeHref": "https://api.moysklad.ru/api/remap/1.2/entity/customentity/6865f33f-5f29-11f1-0a80-111300084662/d66fceac-5f2b-11f1-0a80-18390009850f"
     },
     {
       "id": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
       "name": "Адил",
       "login": "adil",
       "position": "Менеджер",
-      "salary": 0,
+      "salary": 40000,
       "role": "manager",
       "branches": [
-        "ayu",
-        "besh",
         "green",
         "ayu-grand",
-        "besh-sary"
+        "besh-sary",
+        "ayu",
+        "besh"
       ],
       "permissions": [
         "sales",
@@ -119,7 +119,7 @@
       ],
       "active": true,
       "passwordHash": "",
-      "moySkladEmployeeHref": ""
+      "moySkladEmployeeHref": "https://api.moysklad.ru/api/remap/1.2/entity/customentity/6865f33f-5f29-11f1-0a80-111300084662/7b6bc2a0-5f29-11f1-0a80-0cbb00083913"
     },
     {
       "id": "8e18ae57-76cc-4412-b32e-538368f46a78",
@@ -157,7 +157,7 @@
       ],
       "active": true,
       "passwordHash": "",
-      "moySkladEmployeeHref": ""
+      "moySkladEmployeeHref": "https://api.moysklad.ru/api/remap/1.2/entity/customentity/6865f33f-5f29-11f1-0a80-111300084662/cbe9eb71-760b-11f1-0a80-1e1e00229091"
     },
     {
       "id": "7faae323-c24d-4e1c-bd48-e97c1ac352e6",
@@ -200,6 +200,46 @@
       "active": true,
       "passwordHash": "",
       "moySkladEmployeeHref": ""
+    },
+    {
+      "id": "36c99788-e545-46bc-b6bb-b434c3e317d1",
+      "name": "Барчынай",
+      "login": "barchynai",
+      "position": "Продавец",
+      "salary": 0,
+      "role": "seller",
+      "branches": [
+        "besh",
+        "green",
+        "ayu-grand",
+        "besh-sary"
+      ],
+      "permissions": [
+        "sales",
+        "deliveries",
+        "reports",
+        "expenses"
+      ],
+      "active": true,
+      "passwordHash": "",
+      "moySkladEmployeeHref": ""
+    },
+    {
+      "id": "1492bffd-2ae5-46b0-a698-fc3130e9a048",
+      "name": "Гау гауович",
+      "login": "gau",
+      "position": "Сотрудник",
+      "salary": 0,
+      "role": "seller",
+      "branches": [
+        "ayu"
+      ],
+      "permissions": [
+        "sales"
+      ],
+      "active": true,
+      "passwordHash": "",
+      "moySkladEmployeeHref": "https://api.moysklad.ru/api/remap/1.2/entity/customentity/6865f33f-5f29-11f1-0a80-111300084662/1bb88fd1-90ec-11f1-0a80-17e00023bbc7"
     }
   ],
   "sessions": {
@@ -216,16 +256,68 @@
     "8a933571-f6fa-4669-aad8-ff1d0a70f1fc": "8e18ae57-76cc-4412-b32e-538368f46a78",
     "2c62d747-d551-4f95-b788-3f8e424386c4": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
     "53f0ae9d-be6f-4aa9-8b4f-5c813f811a32": "8e18ae57-76cc-4412-b32e-538368f46a78",
-    "568e15c4-6ce0-44e1-9241-efdfde5b2bc9": "8e18ae57-76cc-4412-b32e-538368f46a78",
     "03b0087e-01cc-43d1-80df-54a1b00acae0": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
     "448bde0a-9a81-46bc-9bb6-baec5eae6297": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
-    "a7318d57-8625-40c8-961b-f88925121d49": "5e697f28-61ba-47af-ad23-c31a90f10ea9"
+    "a7318d57-8625-40c8-961b-f88925121d49": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "9dfbe9a1-03b3-4180-b2f1-01991b2c4bf1": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
+    "244fa91e-9d80-417e-8349-76434a86bcf6": "8e18ae57-76cc-4412-b32e-538368f46a78",
+    "bc5e1d9e-3fe6-4504-9ad8-70e9a32af9a0": "1492bffd-2ae5-46b0-a698-fc3130e9a048",
+    "fd446a62-c126-494e-9616-e6d1dd79d94f": "5e697f28-61ba-47af-ad23-c31a90f10ea9"
   },
   "uiSettings": {},
   "expenses": [],
   "deliveries": [],
   "attendanceStores": [],
   "attendanceRecords": [
+    {
+      "id": "6610fdfb-87f4-451b-a6b6-1f2f34b0ea65",
+      "userId": "1492bffd-2ae5-46b0-a698-fc3130e9a048",
+      "userName": "Гау гауович",
+      "storeId": "ayu-grand",
+      "storeName": "Аю-Гранд",
+      "checkInTime": "2026-08-05T17:03:39.674Z",
+      "checkOutTime": "2026-08-05T12:00:00.000Z",
+      "checkInDistanceMeters": 0,
+      "checkOutDistanceMeters": 0,
+      "totalWorkMinutes": 0,
+      "currentWorkMinutes": 0,
+      "lateMinutes": 844,
+      "status": "closed",
+      "source": "wifi",
+      "telegramOpenMessageId": 20
+    },
+    {
+      "id": "24b164f1-1c52-498b-bf50-bdd2ad39f5ba",
+      "userId": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
+      "userName": "Адил",
+      "storeId": "ayu-grand",
+      "storeName": "Аю-Гранд",
+      "checkInTime": "2026-08-05T16:30:32.278Z",
+      "checkOutTime": "2026-08-05T12:00:00.000Z",
+      "checkInDistanceMeters": 0,
+      "checkOutDistanceMeters": 0,
+      "totalWorkMinutes": 0,
+      "currentWorkMinutes": 0,
+      "lateMinutes": 811,
+      "status": "closed",
+      "source": "wifi"
+    },
+    {
+      "id": "9af9f88f-5fe4-463e-838d-59aa5c11202a",
+      "userId": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
+      "userName": "Адил",
+      "storeId": "ayu-grand",
+      "storeName": "Аю-Гранд",
+      "checkInTime": "2026-08-04T23:22:44.427Z",
+      "checkOutTime": "2026-08-05T12:00:00.000Z",
+      "checkInDistanceMeters": 0,
+      "checkOutDistanceMeters": 0,
+      "totalWorkMinutes": 757,
+      "currentWorkMinutes": 757,
+      "lateMinutes": 0,
+      "status": "closed",
+      "source": "wifi"
+    },
     {
       "id": "520e6b7a-1945-4467-9265-25f928e2d6a6",
       "userId": "36c99788-e545-46bc-b6bb-b434c3e317d1",
@@ -291,6 +383,7 @@
       "source": "geo"
     }
   ],
+  "attendanceCalendar": [],
   "attendanceSchedule": {
     "workStartsAt": "09:00",
     "workEndsAt": "18:00",
@@ -299,13 +392,31 @@
         "key": "ayu-grand",
         "label": "Аю-Гранд",
         "workStartsAt": "09:00",
-        "workEndsAt": "18:00"
+        "workEndsAt": "18:00",
+        "workDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
       },
       {
         "key": "besh-sary",
         "label": "Беш-Сары",
         "workStartsAt": "09:00",
-        "workEndsAt": "19:00"
+        "workEndsAt": "19:00",
+        "workDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ]
       }
     ]
   },

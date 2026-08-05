@@ -5,6 +5,7 @@ import {
   getWahaSessionName,
   isWhatsappAiAutoreplyEnabled,
 } from "../../_lib/whatsapp-ai";
+import { moySkladRateLimitedFetch } from "../../_lib/moysklad-rate-limiter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,7 +124,7 @@ async function checkMoySklad(): Promise<HealthBlock> {
   }
 
   try {
-    const response = await fetch(`${MOYSKLAD_BASE_URL}/entity/product?limit=1`, {
+    const response = await moySkladRateLimitedFetch(`${MOYSKLAD_BASE_URL}/entity/product?limit=1`, {
       headers: {
         Authorization: `Bearer ${MOYSKLAD_TOKEN}`,
         Accept: "application/json;charset=utf-8",

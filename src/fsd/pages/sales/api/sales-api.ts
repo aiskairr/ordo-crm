@@ -139,11 +139,16 @@ function normalizeProduct(value: unknown): Product {
 
 function normalizeCustomer(value: unknown): Customer {
   const record = asRecord(value);
+  const rawCustomerType = asString(record.customerType);
+  const customerType = rawCustomerType === "legal" || rawCustomerType === "entrepreneur"
+    ? rawCustomerType
+    : "individual";
 
   return {
     id: asNumber(record.id),
     href: asString(record.href, undefined),
     name: asString(record.name ?? record.fullName),
+    customerType,
     phone: asString(record.phone, undefined),
     actualAddress: asString(record.actualAddress ?? record.address, undefined),
   };
@@ -194,13 +199,13 @@ export async function getSalesChannels(): Promise<SelectOption[]> {
   }
 }
 
-export async function getProducts(search = "", storeHref = "", branchName = ""): Promise<Product[]> {
+export async function getProducts(search = "", storeHref = "", branchName = "", signal?: AbortSignal): Promise<Product[]> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   if (storeHref) params.set("storeHref", storeHref);
   if (branchName) params.set("branchName", branchName);
 
-  return asArray(await apiClient<unknown>(`/api/products?${params.toString()}`), "products")
+  return asArray(await apiClient<unknown>(`/api/products?${params.toString()}`, { signal }), "products")
     .map(normalizeProduct)
     .filter((item) => item.href || item.id > 0);
 }

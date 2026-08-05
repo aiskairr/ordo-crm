@@ -44,6 +44,14 @@ export type BankCommissionFilters = {
   paymentType?: string;
 };
 
+export type PaymentTypeDirectoryItem = {
+  id: string;
+  href: string;
+  name: string;
+  ratePercent: number;
+  comment: string;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -88,6 +96,43 @@ function normalizeRow(value: unknown): BankCommissionRow {
     shareOfTotalCommission: asNumber(record.shareOfTotalCommission),
     payments: asArray(record.payments).map(normalizePayment),
   };
+}
+
+function normalizePaymentTypeDirectoryItem(value: unknown): PaymentTypeDirectoryItem {
+  const record = asRecord(value);
+  const href = asString(record.href);
+  const rawId = asString(record.id) || href;
+  const id = rawId.split("/").filter(Boolean).at(-1) || rawId;
+  return {
+    id,
+    href,
+    name: asString(record.name),
+    ratePercent: Math.round(asNumber(record.rate) * 10_000) / 100,
+    comment: asString(record.comment),
+  };
+}
+
+export async function getPaymentTypeDirectory() {
+  const payload = asRecord(await apiClient<unknown>("/api/payment-types"));
+  return asArray(payload.paymentTypes)
+    .map(normalizePaymentTypeDirectoryItem)
+    .filter((item) => item.id && item.name);
+}
+
+export async function getBankCommissionSession() {
+  const payload = asRecord(await apiClient<unknown>("/api/crm/session"));
+  const user = asRecord(payload.user);
+  return { role: asString(user.role) };
+}
+
+export async function createPaymentType(input: { name: string; ratePercent: number }) {
+  const payload = asRecord(await apiClient<unknown>("/api/payment-types", { method: "POST", body: input }));
+  return normalizePaymentTypeDirectoryItem(payload.paymentType);
+}
+
+export async function updatePaymentType(id: string, input: { name: string; ratePercent: number }) {
+  const payload = asRecord(await apiClient<unknown>(`/api/payment-types/${encodeURIComponent(id)}`, { method: "PUT", body: input }));
+  return normalizePaymentTypeDirectoryItem(payload.paymentType);
 }
 
 export async function getBankCommissions(filters: BankCommissionFilters): Promise<BankCommissionReport> {

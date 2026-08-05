@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { History, PackageSearch, Plus, Save, Trash2 } from "lucide-react";
 import { useToast } from "@/src/fsd/shared/ui/toast";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import {
   deleteCustomsHistory,
@@ -443,10 +444,9 @@ export function CustomsCalculatorPage() {
       <section className={styles.toolbar}>
         <label>
           <span>Курс USD - KGS</span>
-          <input
-            type="number"
+          <ClearableNumberInput
             value={usdRate}
-            onChange={(e) => setUsdRate(Number(e.target.value))}
+            onValueChange={setUsdRate}
           />
         </label>
         <label className={styles.searchField}>
@@ -604,28 +604,23 @@ export function CustomsCalculatorPage() {
                     <>
                       <label>
                         <span>Коробок</span>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           value={row.boxesCount}
-                          onChange={(e) => patch(row.id, { boxesCount: Number(e.target.value) })}
+                          onValueChange={(boxesCount) => patch(row.id, { boxesCount })}
                         />
                       </label>
                       <label>
                         <span>Штук в коробке</span>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           value={row.unitsPerBox}
-                          onChange={(e) => patch(row.id, { unitsPerBox: Number(e.target.value) })}
+                          onValueChange={(unitsPerBox) => patch(row.id, { unitsPerBox })}
                         />
                       </label>
                       <label>
                         <span>Объем мастер-коробки</span>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           value={row.masterBoxVolume}
-                          onChange={(e) =>
-                            patch(row.id, { masterBoxVolume: Number(e.target.value) })
-                          }
+                          onValueChange={(masterBoxVolume) => patch(row.id, { masterBoxVolume })}
                         />
                       </label>
                     </>
@@ -633,18 +628,16 @@ export function CustomsCalculatorPage() {
                     <>
                       <label>
                         <span>Количество</span>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           value={row.quantity}
-                          onChange={(e) => patch(row.id, { quantity: Number(e.target.value) })}
+                          onValueChange={(quantity) => patch(row.id, { quantity })}
                         />
                       </label>
                       <label>
                         <span>Объем 1 коробки</span>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           value={row.boxSize}
-                          onChange={(e) => patch(row.id, { boxSize: Number(e.target.value) })}
+                          onValueChange={(boxSize) => patch(row.id, { boxSize })}
                         />
                       </label>
                     </>
@@ -656,20 +649,16 @@ export function CustomsCalculatorPage() {
                   </label>
                   <label>
                     <span>Вес 1 шт, кг</span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       value={row.packageWeightKg}
-                      onChange={(e) =>
-                        patch(row.id, { packageWeightKg: Number(e.target.value) })
-                      }
+                      onValueChange={(packageWeightKg) => patch(row.id, { packageWeightKg })}
                     />
                   </label>
                   <label>
                     <span>Закупка</span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       value={row.buyPriceValue}
-                      onChange={(e) => patch(row.id, { buyPriceValue: Number(e.target.value) })}
+                      onValueChange={(buyPriceValue) => patch(row.id, { buyPriceValue })}
                     />
                   </label>
                   <label>
@@ -698,22 +687,16 @@ export function CustomsCalculatorPage() {
                   </label>
                   <label>
                     <span>Прибыль/шт USD</span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       value={row.profitPerUnitUsd}
-                      onChange={(e) =>
-                        patch(row.id, { profitPerUnitUsd: Number(e.target.value) })
-                      }
+                      onValueChange={(profitPerUnitUsd) => patch(row.id, { profitPerUnitUsd })}
                     />
                   </label>
                   <label>
                     <span>Прочие/шт USD</span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       value={row.otherPerUnitUsd}
-                      onChange={(e) =>
-                        patch(row.id, { otherPerUnitUsd: Number(e.target.value) })
-                      }
+                      onValueChange={(otherPerUnitUsd) => patch(row.id, { otherPerUnitUsd })}
                     />
                   </label>
                   <label className={styles.wide}>
@@ -818,12 +801,9 @@ export function CustomsCalculatorPage() {
           ].map(([key, label]) => (
             <label key={key}>
               <span>{label}</span>
-              <input
-                type="number"
+              <ClearableNumberInput
                 value={party[key as keyof PartyExpenses] as number}
-                onChange={(e) =>
-                  patchParty({ [key]: Number(e.target.value) } as Partial<PartyExpenses>)
-                }
+                onValueChange={(value) => patchParty({ [key]: value } as Partial<PartyExpenses>)}
               />
             </label>
           ))}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Calculator, Copy, PackageSearch, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useToast } from "@/src/fsd/shared/ui/toast";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import {
   getAccountingPriceCatalogPage,
@@ -655,21 +656,21 @@ export function PriceFormulaPage() {
       <section className={styles.controls}>
         <label>
           <span>Курс USD -&gt; KGS</span>
-          <input type="number" value={usdRate} onChange={(event) => { setUsdRate(Number(event.target.value)); clearCalculated(); }} />
+          <ClearableNumberInput value={usdRate} onValueChange={(value) => { setUsdRate(value); clearCalculated(); }} />
         </label>
         <label>
           <span className={styles.checkLabel}>
             <input type="checkbox" checked={calculate36} onChange={(event) => { setCalculate36(event.target.checked); clearCalculated(); }} />
             Считать 3-6
           </span>
-          <input type="number" value={bank36} onChange={(event) => { setBank36(Number(event.target.value)); clearCalculated(); }} />
+          <ClearableNumberInput value={bank36} onValueChange={(value) => { setBank36(value); clearCalculated(); }} />
         </label>
         <label>
           <span className={styles.checkLabel}>
             <input type="checkbox" checked={calculate912} onChange={(event) => { setCalculate912(event.target.checked); clearCalculated(); }} />
             Считать 9-12
           </span>
-          <input type="number" value={bank912} onChange={(event) => { setBank912(Number(event.target.value)); clearCalculated(); }} />
+          <ClearableNumberInput value={bank912} onValueChange={(value) => { setBank912(value); clearCalculated(); }} />
         </label>
         <label>
           <span>Округление минимальной и банковских цен</span>
@@ -743,13 +744,13 @@ export function PriceFormulaPage() {
                     </td>
                     <td>{product.buyPrice?.value ? `${formatNumber(product.buyPrice.value)} ${product.buyPrice.currencyIsoCode || product.buyPrice.currencyName || ""}` : "нет закупки"}</td>
                     <td>{formatWholesale(product, effectiveWholesale)}</td>
-                    <td>{next ? <><input value={next.wholesalePrice} type="number" onChange={(event) => changeCalculated(product.id, "wholesalePrice", Number(event.target.value))} /><span className={styles.priceCurrency}>USD</span></> : <span className={styles.muted}>не рассчитано</span>}</td>
+                    <td>{next ? <><ClearableNumberInput value={next.wholesalePrice} onValueChange={(value) => changeCalculated(product.id, "wholesalePrice", value)} /><span className={styles.priceCurrency}>USD</span></> : <span className={styles.muted}>не рассчитано</span>}</td>
                     <td>{formatMoney(product.minPrice?.value || 0, "сом")}</td>
-                    <td>{next ? <input value={next.minPrice} type="number" onChange={(event) => changeCalculated(product.id, "minPrice", Number(event.target.value))} /> : <span className={styles.muted}>не рассчитано</span>}</td>
+                    <td>{next ? <ClearableNumberInput value={next.minPrice} onValueChange={(value) => changeCalculated(product.id, "minPrice", value)} /> : <span className={styles.muted}>не рассчитано</span>}</td>
                     <td>{formatMoney(getPrice(product, effectiveType36), "сом")}</td>
-                    <td>{next?.price36 !== null && next?.price36 !== undefined ? <input value={next.price36} type="number" onChange={(event) => changeCalculated(product.id, "price36", Number(event.target.value))} /> : <span className={styles.muted}>не считать</span>}</td>
+                    <td>{next?.price36 !== null && next?.price36 !== undefined ? <ClearableNumberInput value={next.price36} onValueChange={(value) => changeCalculated(product.id, "price36", value)} /> : <span className={styles.muted}>не считать</span>}</td>
                     <td>{formatMoney(getPrice(product, effectiveType912), "сом")}</td>
-                    <td>{next?.price912 !== null && next?.price912 !== undefined ? <input value={next.price912} type="number" onChange={(event) => changeCalculated(product.id, "price912", Number(event.target.value))} /> : <span className={styles.muted}>не считать</span>}</td>
+                    <td>{next?.price912 !== null && next?.price912 !== undefined ? <ClearableNumberInput value={next.price912} onValueChange={(value) => changeCalculated(product.id, "price912", value)} /> : <span className={styles.muted}>не считать</span>}</td>
                   </tr>
                 );
               })}

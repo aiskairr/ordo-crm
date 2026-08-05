@@ -99,10 +99,12 @@
   box-shadow: var(--shadow);
   padding: 42px;
   text-align: center;
+  justify-self: center;
 }
 
 .shiftPrompt p,
-.scheduleBox p {
+.scheduleBox p,
+.calendarBox p {
   margin: 0;
   color: var(--primary);
   font-weight: 900;
@@ -188,6 +190,21 @@
 .zonePanel span {
   color: var(--muted);
   line-height: 1.45;
+}
+
+.zoneAllowed {
+  border-color: rgba(15, 159, 110, 0.3);
+}
+
+.zoneDenied {
+  border-color: rgba(225, 29, 72, 0.25);
+  background:
+    radial-gradient(circle at 12% 20%, rgba(225, 29, 72, 0.1), transparent 28%),
+    #fff8f8;
+}
+
+.zoneDenied svg {
+  color: #be123c;
 }
 
 .field,
@@ -375,6 +392,192 @@
   background:
     linear-gradient(135deg, rgba(15, 159, 110, 0.08), transparent 48%),
     var(--panel-muted);
+  padding: 12px;
+}
+
+.scheduleBranch {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #aebbd0;
+  border-radius: 18px;
+  background: #fff;
+  padding: 10px;
+}
+
+.scheduleBranch .adminOpen {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.workDays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.workDays label {
+  display: grid;
+  min-height: 38px;
+  place-items: center;
+  border: 1px solid #aebbd0;
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.workDays input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workDays span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.workDays label:has(input:checked) {
+  border-color: #2563eb;
+  background: #e8f0ff;
+}
+
+.workDays label:has(input:checked) span {
+  color: #1d4ed8;
+}
+
+.calendarBox {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #9facbf;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #f8faff, #eef4ff);
+  padding: 14px;
+}
+
+.calendarBox > div:first-child > span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.calendarBox > button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #102a68, #2563eb);
+  color: #fff;
+  font-weight: 900;
+}
+
+.calendarBox > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.calendarList {
+  display: grid;
+  gap: 8px;
+}
+
+.calendarList article {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #aebbd0;
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px;
+}
+
+.calendarList article > b {
+  display: grid;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  background: #e8f0ff;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.calendarList article > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.calendarList strong {
+  overflow: hidden;
+  color: #182033;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendarList span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.calendarList button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.networkSettings {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel-muted);
+  padding: 14px;
+}
+
+.networkSettings p {
+  margin: 0 0 4px;
+  color: var(--primary);
+  font-weight: 900;
+}
+
+.networkSettings > div > span,
+.currentIp span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.networkSettings > button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 13px;
+  background: #eef4ff;
+  color: #1e40af;
+  padding: 0 14px;
+  font-weight: 900;
+}
+
+.currentIp {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 13px;
+  background: #ffffff;
   padding: 12px;
 }
 

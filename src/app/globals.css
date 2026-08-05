@@ -13,9 +13,10 @@
   --panel-strong: #f9fbff;
   --panel-muted: #e9eefb;
   --text: #141a2f;
-  --muted: #69728d;
-  --border: rgba(67, 77, 134, 0.16);
-  --border-strong: rgba(67, 77, 134, 0.22);
+  --muted: #566178;
+  --border: rgba(38, 49, 80, 0.32);
+  --border-strong: rgba(31, 41, 66, 0.5);
+  --focus-ring: #1d4ed8;
   --primary: #3038a4;
   --primary-strong: #3038a4;
   --primary-gradient: linear-gradient(135deg, #15182b 0%, #3038a4 100%);
@@ -41,9 +42,10 @@
   --panel-strong: #1b2135;
   --panel-muted: #13172a;
   --text: #f5f7ff;
-  --muted: #9aa5c0;
-  --border: rgba(133, 146, 209, 0.12);
-  --border-strong: rgba(133, 146, 209, 0.2);
+  --muted: #b8c1d6;
+  --border: rgba(190, 201, 239, 0.32);
+  --border-strong: rgba(205, 215, 247, 0.52);
+  --focus-ring: #93b4ff;
   --shadow: 0 34px 90px rgba(5, 10, 24, 0.46);
   --shadow-soft: 0 22px 54px rgba(8, 12, 26, 0.34);
 }
@@ -98,6 +100,28 @@ textarea {
   font: inherit;
 }
 
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border-color: var(--border-strong) !important;
+  border-width: 2px !important;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  outline: 1px solid var(--border-strong);
+  outline-offset: 1px;
+  accent-color: var(--primary);
+}
+
+table th,
+table td {
+  border-color: var(--border-strong);
+}
+
 button {
   cursor: pointer;
 }
@@ -125,8 +149,9 @@ select:focus-visible,
 textarea:focus-visible,
 button:focus-visible,
 a:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--primary) 70%, white);
-  outline-offset: 2px;
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px var(--panel);
 }
 
 button:disabled,

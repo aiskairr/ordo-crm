@@ -7,6 +7,7 @@ import type { CrmRole, CrmUser, CrmUserCreate } from "@/src/fsd/entities/user";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import { useToast } from "@/src/fsd/shared/ui/toast";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
 import { createCrmUser } from "../api/users-access-api";
 import {
   BRANCHES,
@@ -162,12 +163,11 @@ export function CreateUserPanel({ actor }: { actor: Pick<CrmUser, "role"> | null
         </label>
         <label>
           <span>Оклад</span>
-          <input
-            type="number"
+          <ClearableNumberInput
             min="0"
             max="10000000"
             value={draft.salary}
-            onChange={(event) => patch({ salary: Number(event.target.value) || 0 })}
+            onValueChange={(salary) => patch({ salary })}
             disabled={mutation.isPending}
           />
         </label>

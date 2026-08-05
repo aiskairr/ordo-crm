@@ -1,5 +1,6 @@
 import { apiClient } from "@/src/fsd/shared/api";
 import type { CrmRole, CrmUser, CrmUserCreate, CrmUserUpdate } from "@/src/fsd/entities/user";
+import { normalizePayrollConfig, type PayrollConfig } from "@/src/fsd/entities/payroll";
 
 type UnknownRecord = Record<string, unknown>;
 type MoySkladRemovalStatus = NonNullable<CrmUser["moySkladRemoval"]>["status"];
@@ -100,6 +101,30 @@ function normalizeUsers(payload: unknown) {
 
 export async function getCrmUsers() {
   return normalizeUsers(await apiClient<unknown>("/api/crm/users"));
+}
+
+export async function getEmployeePayrollSettings() {
+  const response = asRecord(await apiClient<unknown>("/api/payroll/employees"));
+  const rows = Array.isArray(response.rows) ? response.rows : [];
+  return rows.map((value) => {
+    const row = asRecord(value);
+    return {
+      employeeHref: asString(row.href),
+      payroll: normalizePayrollConfig(row.payroll),
+    };
+  }).filter((item) => item.employeeHref);
+}
+
+export async function saveEmployeePayrollSettings(employeeHref: string, payroll: PayrollConfig) {
+  const response = asRecord(await apiClient<unknown>("/api/payroll/employees/config", {
+    method: "POST",
+    body: { employees: [{ employeeHref, payroll }] },
+  }));
+  const result = Array.isArray(response.results) ? asRecord(response.results[0]) : {};
+  if (!asBoolean(result.ok, false)) {
+    throw new Error(asString(result.error, "Не удалось сохранить настройки зарплаты."));
+  }
+  return response;
 }
 
 export async function updateCrmUser(id: string, payload: CrmUserUpdate) {

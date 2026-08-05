@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Plus, Printer, Search, Trash2, X } from "lucide-react";
 import { useToast } from "@/src/fsd/shared/ui/toast";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import {
   createCommercialDemandFromOrder,
@@ -116,7 +117,7 @@ export function CommercialDocumentsPage() {
   });
   const productQuery = useQuery({
     queryKey: ["commercial-products", productSearch, storeHref],
-    queryFn: () => searchCommercialProducts(productSearch, storeHref),
+    queryFn: ({ signal }) => searchCommercialProducts(productSearch, storeHref, signal),
     enabled: productSearch.trim().length >= 2,
   });
   const currentCustomerHref = form.customerHref || result?.customerHref || "";
@@ -428,8 +429,8 @@ export function CommercialDocumentsPage() {
                       </div>
                     ) : null}
                   </div>
-                  <label><span>Кол-во</span><input type="number" min="0.001" step="0.001" value={item.quantity} onChange={(event) => patchItem(item.id, { quantity: Number(event.target.value) })} /></label>
-                  <label><span>Цена</span><input type="number" min="0" step="0.01" value={item.productPrice} onChange={(event) => patchItem(item.id, { productPrice: Number(event.target.value) })} /></label>
+                  <label><span>Кол-во</span><ClearableNumberInput min="0.001" step="0.001" value={item.quantity} emptyValue={1} onValueChange={(quantity) => patchItem(item.id, { quantity })} /></label>
+                  <label><span>Цена</span><ClearableNumberInput min="0" step="0.01" value={item.productPrice} onValueChange={(productPrice) => patchItem(item.id, { productPrice })} /></label>
                   <label><span>Код</span><input value={item.code} onChange={(event) => patchItem(item.id, { code: event.target.value })} /></label>
                   <div className={styles.lineTotal}><span>Сумма</span><strong>{money(item.productPrice * item.quantity)}</strong></div>
                   <button

@@ -1,19 +1,19 @@
-import type { AttendanceRecord, AttendanceStore, AttendanceUser } from "../api/attendance-api";
+import type { AttendanceRecord, AttendanceUser } from "../api/attendance-api";
 
 export const branchLabels: Record<string, string> = {
   ayu: "Аю-Гранд",
   besh: "Беш-Сары",
 };
 
-export function isAttendanceRequiredForUser(user: AttendanceUser | null) {
+export function isAttendanceRequiredForUser(user: Pick<AttendanceUser, "role"> | null) {
   return ["manager", "seller", "logistics", "accountant", "employee"].includes(user?.role ?? "");
 }
 
-export function canManageAttendance(user: AttendanceUser | null) {
-  return Boolean(user && ["admin", "owner", "manager"].includes(user.role));
+export function canManageAttendance(user: Pick<AttendanceUser, "role"> | null) {
+  return user?.role === "admin";
 }
 
-export function canViewReports(user: AttendanceUser | null) {
+export function canViewReports(user: Pick<AttendanceUser, "role"> | null) {
   return Boolean(user && ["admin", "owner", "manager"].includes(user.role));
 }
 
@@ -23,6 +23,23 @@ export function todayIsoDate() {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function localIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function currentWeekIsoRange() {
+  const today = new Date();
+  const mondayOffset = (today.getDay() + 6) % 7;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { dateFrom: localIsoDate(monday), dateTo: localIsoDate(sunday) };
 }
 
 export function formatDuration(minutes: number) {
@@ -47,42 +64,6 @@ export function formatDateTime(value: string) {
 
 export function recordWorkMinutes(record: AttendanceRecord) {
   return record.currentWorkMinutes || record.totalWorkMinutes || 0;
-}
-
-export function getCurrentPosition() {
-  return new Promise<GeolocationPosition>((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("Для отметки прихода/ухода необходимо разрешить доступ к геолокации."));
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      resolve,
-      () => reject(new Error("Для отметки прихода/ухода необходимо разрешить доступ к геолокации.")),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-    );
-  });
-}
-
-export function distanceMeters(latitude: number, longitude: number, store: AttendanceStore) {
-  const earthRadius = 6371000;
-  const toRadians = (value: number) => value * Math.PI / 180;
-  const dLat = toRadians(store.latitude - latitude);
-  const dLon = toRadians(store.longitude - longitude);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(latitude)) * Math.cos(toRadians(store.latitude)) * Math.sin(dLon / 2) ** 2;
-
-  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-export function findNearestAllowedStore(stores: AttendanceStore[], latitude: number, longitude: number) {
-  return stores
-    .map((store) => ({
-      store,
-      distance: distanceMeters(latitude, longitude, store),
-    }))
-    .sort((left, right) => left.distance - right.distance)[0] ?? null;
 }
 
 export function exportAttendanceCsv(rows: AttendanceRecord[], dateFrom: string, dateTo: string) {

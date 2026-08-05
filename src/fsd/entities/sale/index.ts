@@ -19,6 +19,9 @@ export type SaleDraft = {
   customerMode: "retail" | "new" | "existing";
   customerId: string;
   customerName: string;
+  customerFirstName: string;
+  customerLastName: string;
+  customerType: "individual" | "entrepreneur" | "legal";
   customerPhone: string;
   delivery: boolean;
   deliveryAddress: string;

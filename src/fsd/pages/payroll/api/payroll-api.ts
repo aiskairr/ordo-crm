@@ -1,17 +1,7 @@
 import { apiClient } from "@/src/fsd/shared/api";
+import { normalizePayrollConfig, type PayrollConfig } from "@/src/fsd/entities/payroll";
 
-export type PayrollScheme = "salary" | "percent" | "salary_percent" | "category_bonus" | "salary_category_bonus";
-export type PayrollPercentBase = "revenue" | "profit";
-
-export type PayrollConfig = {
-  enabled: boolean;
-  position: string;
-  customPosition: string;
-  scheme: PayrollScheme;
-  monthlySalary: number;
-  percent: number;
-  percentBase: PayrollPercentBase;
-};
+export type { PayrollConfig, PayrollPercentBase, PayrollScheme } from "@/src/fsd/entities/payroll";
 
 export type PayrollProduct = {
   code: string;
@@ -93,28 +83,6 @@ function asBoolean(value: unknown) {
   return Boolean(value);
 }
 
-function normalizeScheme(value: unknown): PayrollScheme {
-  const schemes: PayrollScheme[] = ["salary", "percent", "salary_percent", "category_bonus", "salary_category_bonus"];
-  return schemes.includes(value as PayrollScheme) ? (value as PayrollScheme) : "salary_percent";
-}
-
-function normalizePercentBase(value: unknown): PayrollPercentBase {
-  return value === "profit" ? "profit" : "revenue";
-}
-
-function normalizePayrollConfig(value: unknown): PayrollConfig {
-  const record = asRecord(value);
-  return {
-    enabled: asBoolean(record.enabled),
-    position: asString(record.position || "other"),
-    customPosition: asString(record.customPosition),
-    scheme: normalizeScheme(record.scheme),
-    monthlySalary: asNumber(record.monthlySalary),
-    percent: asNumber(record.percent),
-    percentBase: normalizePercentBase(record.percentBase),
-  };
-}
-
 function normalizeProduct(value: unknown): PayrollProduct {
   const record = asRecord(value);
   return {
@@ -178,7 +146,7 @@ function normalizeTotals(value: unknown): PayrollTotals {
 
 export async function getPayrollReport(params: { dateFrom: string; dateTo: string }): Promise<PayrollReport> {
   const searchParams = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
-  const payload = asRecord(await apiClient<unknown>(`/api/payroll?${searchParams.toString()}`, { timeoutMs: 60000 }));
+  const payload = asRecord(await apiClient<unknown>(`/api/payroll?${searchParams.toString()}`, { timeoutMs: 120000 }));
   return {
     dateFrom: asString(payload.dateFrom),
     dateTo: asString(payload.dateTo),

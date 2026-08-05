@@ -5,15 +5,25 @@ import { ArchiveRestore, CloudDownload, Eye, EyeOff, KeyRound, RefreshCw, Shield
 import { useMemo, useState } from "react";
 import type { CrmRole, CrmUser, CrmUserUpdate } from "@/src/fsd/entities/user";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
+import {
+  isPercentPayrollScheme,
+  PAYROLL_PERCENT_BASE_LABELS,
+  PAYROLL_SCHEME_LABELS,
+  type PayrollPercentBase,
+  type PayrollScheme,
+} from "@/src/fsd/entities/payroll";
 import { getErrorText, isUnauthorizedError } from "@/src/fsd/shared/lib/errors";
 import { AuthRequired, StatusPanel } from "@/src/fsd/shared/ui/status";
 import { useToast } from "@/src/fsd/shared/ui/toast";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
 import { getShellSession } from "@/src/fsd/widgets/app-shell/api/app-shell-api";
 import { AppShell } from "@/src/fsd/widgets/app-shell";
 import {
   getCrmUserDeletionImpact,
   getCrmUsers,
+  getEmployeePayrollSettings,
   reassignAndDeleteCrmUser,
+  saveEmployeePayrollSettings,
   syncCrmUsersFromMoySklad,
   updateCrmUser,
 } from "../api/users-access-api";
@@ -75,6 +85,11 @@ function UserCard({
   const reportProfitGranted = draft.permissions.includes("reportProfit");
   const reportProfitEditable = canGrantReportProfit(actor, draft.role, draft.permissions);
   const readOnlyAdmin = actor?.role !== "admin" && draft.role === "admin";
+  const payrollEditable = editable && draft.payrollAvailable && !saving && !deleting;
+
+  const updatePayroll = (patch: Partial<UsersAccessDraft["payroll"]>) => {
+    onChange(draft.id, { payroll: { ...draft.payroll, ...patch } });
+  };
 
   const toggleBranch = (branch: string) => {
     const next = draft.branches.includes(branch)
@@ -152,13 +167,12 @@ function UserCard({
         </label>
         <label className={styles.field}>
           <span>Оклад</span>
-          <input
-            type="number"
+          <ClearableNumberInput
             min="0"
             max="10000000"
             value={draft.salary}
             disabled={!editable || saving || deleting}
-            onChange={(event) => onChange(draft.id, { salary: Number(event.target.value) || 0 })}
+            onValueChange={(salary) => onChange(draft.id, { salary })}
           />
         </label>
         <label className={styles.field}>
@@ -181,7 +195,60 @@ function UserCard({
             ))}
           </select>
         </label>
+        <label className={styles.field}>
+          <span>Расчёт зарплаты</span>
+          <select
+            value={draft.payroll.enabled ? "enabled" : "disabled"}
+            disabled={!payrollEditable}
+            onChange={(event) => updatePayroll({ enabled: event.target.value === "enabled" })}
+          >
+            <option value="enabled">Участвует</option>
+            <option value="disabled">Не участвует</option>
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span>Схема начисления</span>
+          <select
+            value={draft.payroll.scheme}
+            disabled={!payrollEditable}
+            onChange={(event) => updatePayroll({ scheme: event.target.value as PayrollScheme })}
+          >
+            {Object.entries(PAYROLL_SCHEME_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span>Процент, %</span>
+          <ClearableNumberInput
+            min="0"
+            max="100"
+            step="0.1"
+            value={draft.payroll.percent}
+            disabled={!payrollEditable || !isPercentPayrollScheme(draft.payroll.scheme)}
+            onValueChange={(percent) => updatePayroll({ percent })}
+          />
+        </label>
+        <label className={styles.field}>
+          <span>База процента</span>
+          <select
+            value={draft.payroll.percentBase}
+            disabled={!payrollEditable || !isPercentPayrollScheme(draft.payroll.scheme)}
+            onChange={(event) => updatePayroll({ percentBase: event.target.value as PayrollPercentBase })}
+          >
+            {Object.entries(PAYROLL_PERCENT_BASE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
       </div>
+
+      {!draft.payrollAvailable ? (
+        <div className={styles.noticeInline}>
+          <ShieldAlert size={16} />
+          <span>Настройки зарплаты появятся после связи сотрудника с МойСклад.</span>
+        </div>
+      ) : null}
 
       <div className={styles.sectionGrid}>
         <section className={styles.sectionCard}>
@@ -265,7 +332,7 @@ function UserCard({
       <div className={styles.cardFooter}>
         <div className={styles.salaryHint}>
           <UserRound size={16} />
-          <span>Оклад и должность используются в странице зарплат.</span>
+          <span>Оклад, должность и схема начисления используются на странице зарплат.</span>
         </div>
         <div className={styles.footerActions}>
           <button
@@ -308,10 +375,15 @@ export function UsersAccessPage() {
 
   const sessionQuery = useQuery({ queryKey: ["crm-session"], queryFn: getShellSession });
   const usersQuery = useQuery({ queryKey: ["crm-users"], queryFn: getCrmUsers });
+  const payrollSettingsQuery = useQuery({ queryKey: ["payroll-employee-settings"], queryFn: getEmployeePayrollSettings });
 
   const actor = sessionQuery.data?.user ?? null;
   const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const payrollByHref = useMemo(
+    () => new Map((payrollSettingsQuery.data ?? []).map((item) => [item.employeeHref, item.payroll])),
+    [payrollSettingsQuery.data],
+  );
   const filteredUsers = useMemo(() => filterUsers(users, search, roleFilter), [users, search, roleFilter]);
   const reassignmentTargets = useMemo(() => users.filter((user) =>
     user.id !== deleteTarget?.id
@@ -370,15 +442,27 @@ export function UsersAccessPage() {
         active: draft.active,
         password: draft.password.trim() || undefined,
       };
-      return updateCrmUser(draft.id, payload);
+      const user = await updateCrmUser(draft.id, payload);
+      const payroll = {
+        ...draft.payroll,
+        monthlySalary: user.salary,
+        customPosition: user.position,
+      };
+      if (draft.payrollAvailable && user.moySkladEmployeeHref) {
+        await saveEmployeePayrollSettings(user.moySkladEmployeeHref, payroll);
+      }
+      return { user, payroll: draft.payrollAvailable ? payroll : undefined };
     },
-    onSuccess: async (user) => {
+    onSuccess: async ({ user, payroll }) => {
       setDrafts((current) => ({
         ...current,
-        [user.id]: { ...toUserDraft(user), password: "", passwordVisible: false },
+        [user.id]: { ...toUserDraft(user, payroll), password: "", passwordVisible: false },
       }));
       showToast({ tone: "success", title: `Сотрудник «${user.name}» сохранен` });
-      await queryClient.invalidateQueries({ queryKey: ["crm-users"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["crm-users"] }),
+        queryClient.invalidateQueries({ queryKey: ["payroll-employee-settings"] }),
+      ]);
     },
     onError: (error) => {
       showToast({ tone: "error", title: "Не удалось сохранить сотрудника", description: getErrorText(error) });
@@ -437,7 +521,8 @@ export function UsersAccessPage() {
 
   const updateDraft = (id: string, patch: Partial<UsersAccessDraft>) => {
     setDrafts((current) => {
-      const draft = current[id] ?? (usersById.get(id) ? toUserDraft(usersById.get(id)!) : null);
+      const user = usersById.get(id);
+      const draft = current[id] ?? (user ? toUserDraft(user, payrollByHref.get(user.moySkladEmployeeHref || "")) : null);
       if (!draft) return current;
       const next = { ...draft, ...patch };
       if ("role" in patch && patch.role) {
@@ -539,12 +624,12 @@ export function UsersAccessPage() {
               {filteredUsers.map((user) => {
                 const draft = drafts[user.id]
                   ? {
-                      ...toUserDraft(user),
+                      ...toUserDraft(user, payrollByHref.get(user.moySkladEmployeeHref || "")),
                       ...drafts[user.id],
                       password: drafts[user.id].password,
                       passwordVisible: drafts[user.id].passwordVisible,
                     }
-                  : toUserDraft(user);
+                  : toUserDraft(user, payrollByHref.get(user.moySkladEmployeeHref || ""));
                 return (
                   <UserCard
                     key={user.id}

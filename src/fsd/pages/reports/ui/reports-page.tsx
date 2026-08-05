@@ -668,6 +668,9 @@ export function ReportsPage() {
                   <span>ИНН: {row.customerInn || "-"}</span>
                   <span>Адрес: {row.customerAddress || "-"}</span>
                   <span>Комментарий: {row.comment || "-"}</span>
+                  {row.paymentTypeCorrected || row.commissionCorrected ? (
+                    <span>Синхронизация оплаты: комментарий, комиссия и прибыль пересчитаны по текущему типу оплаты МойСклад.</span>
+                  ) : null}
                   <span>Оплачено: {formatSom(row.paid)}</span>
                   <span>Не оплачено: {formatSom(row.unpaid)}</span>
                 </div>

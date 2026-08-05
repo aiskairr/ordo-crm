@@ -306,6 +306,17 @@
   border-color: rgba(79, 140, 255, 0.32);
 }
 
+.attendanceAction {
+  background: linear-gradient(135deg, rgba(15, 159, 110, 0.24), rgba(34, 211, 238, 0.1));
+  border-color: rgba(15, 159, 110, 0.34);
+}
+
+.attendanceAction:hover {
+  background: linear-gradient(135deg, rgba(15, 159, 110, 0.36), rgba(34, 211, 238, 0.18));
+  border-color: rgba(52, 211, 153, 0.56);
+  color: #ffffff;
+}
+
 .settingsAction:hover {
   background: linear-gradient(135deg, rgba(79, 140, 255, 0.34), rgba(34, 211, 238, 0.2));
   border-color: rgba(34, 211, 238, 0.52);
@@ -338,6 +349,129 @@
   padding: 34px 34px 34px 46px;
   overflow-x: clip;
   overflow-y: visible;
+}
+
+.attendanceGateBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: rgba(7, 12, 27, 0.78);
+  backdrop-filter: blur(12px);
+  padding: 18px;
+}
+
+.attendanceGate {
+  display: grid;
+  width: min(520px, 100%);
+  justify-items: center;
+  gap: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 28px;
+  background: var(--panel);
+  box-shadow: 0 32px 90px rgba(4, 10, 26, 0.38);
+  padding: 32px;
+  color: var(--text);
+  text-align: center;
+}
+
+.attendanceGate > span {
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.attendanceGate h2,
+.attendanceGate p {
+  margin: 0;
+}
+
+.attendanceGate h2 {
+  font-size: clamp(28px, 6vw, 42px);
+  line-height: 1.05;
+}
+
+.attendanceGate p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.attendanceGateIcon {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border-radius: 22px;
+  background: rgba(225, 29, 72, 0.1);
+  color: #be123c;
+}
+
+.attendanceGateAllowed {
+  background: rgba(15, 159, 110, 0.12);
+  color: #0f9f6e;
+}
+
+.attendanceGateActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+
+.attendanceGateActions button,
+.attendanceGateLogout {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  color: #ffffff;
+  padding: 0 16px;
+  font-weight: 900;
+}
+
+.attendanceGateActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.attendanceGateSecondary {
+  border: 1px solid var(--border) !important;
+  background: var(--panel-muted) !important;
+  color: var(--text) !important;
+}
+
+.attendanceGateLogout {
+  min-height: 36px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.attendanceGateError {
+  width: 100%;
+  border-radius: 12px;
+  background: rgba(225, 29, 72, 0.1);
+  color: #be123c;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+@media (max-width: 560px) {
+  .attendanceGate {
+    padding: 24px 18px;
+  }
+
+  .attendanceGateActions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .mobileToggle {

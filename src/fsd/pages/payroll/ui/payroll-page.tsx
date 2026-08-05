@@ -2,28 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Eye, LoaderCircle, PlusCircle, Printer, RefreshCw, Save } from "lucide-react";
+import { Eye, LoaderCircle, PlusCircle, Printer, RefreshCw } from "lucide-react";
 import { useToast } from "@/src/fsd/shared/ui/toast";
 import { getErrorText } from "@/src/fsd/shared/lib/errors";
 import {
   addPayrollExpense,
   getPayrollEmployeesReport,
   getPayrollReport,
-  savePayrollConfigs,
-  type PayrollPercentBase,
   type PayrollReport,
   type PayrollRow,
-  type PayrollScheme,
 } from "../api/payroll-api";
 import styles from "./payroll-page.module.css";
-
-const schemeLabels: Record<PayrollScheme, string> = {
-  salary: "Только оклад",
-  percent: "Только процент",
-  salary_percent: "Оклад + процент",
-  category_bonus: "Бонус по категории",
-  salary_category_bonus: "Оклад + бонус категории",
-};
 
 function localDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -180,6 +169,7 @@ export function PayrollPage() {
   const [isFullLoading, setIsFullLoading] = useState(false);
   const [fullLoadError, setFullLoadError] = useState<string | null>(null);
   const loadGeneration = useRef(0);
+  const isCalculating = isInitialLoading || isFullLoading;
 
   const rows = useMemo(() => recalculateRows(report?.rows ?? [], dateFrom, dateTo), [report?.rows, dateFrom, dateTo]);
   const totals = useMemo(() => {
@@ -190,15 +180,6 @@ export function PayrollPage() {
       unassignedRevenue: report?.totals.unassignedRevenue ?? 0,
     };
   }, [report?.totals.unassignedDocuments, report?.totals.unassignedRevenue, rows]);
-
-  const saveMutation = useMutation({
-    mutationFn: () => savePayrollConfigs(rows.filter((row) => !row.id.startsWith("skeleton-"))),
-    onSuccess: async () => {
-      setReport((current) => current ? ({ ...current, rows: current.rows.map((row) => ({ ...row, dirty: false })) }) : current);
-      showToast({ tone: "success", title: "Настройки зарплаты сохранены" });
-    },
-    onError: (error) => showToast({ tone: "error", title: "Не удалось сохранить настройки", description: getErrorText(error) }),
-  });
 
   const expenseMutation = useMutation({
     mutationFn: () =>
@@ -278,16 +259,6 @@ export function PayrollPage() {
     : rows;
   const selectedEmployee = rows.find((row) => row.id === selectedEmployeeId) ?? null;
 
-  const patchRow = (id: string, patch: Partial<PayrollRow["payroll"]>) => {
-    setReport((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        rows: current.rows.map((row) => row.id === id ? { ...row, payroll: { ...row.payroll, ...patch }, dirty: true } : row),
-      };
-    });
-  };
-
   return (
     <section className={styles.page}>
       <header className={styles.header}>
@@ -297,9 +268,6 @@ export function PayrollPage() {
           <span>Сначала показываем сотрудников, потом в фоне догружаем продажи и пересчитываем выплаты.</span>
         </div>
         <div className={styles.headerActions}>
-          <button type="button" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !rows.length}>
-            <Save size={17} /> {saveMutation.isPending ? "Сохраняю..." : "Сохранить настройки"}
-          </button>
           <button type="button" onClick={() => window.print()}>
             <Printer size={17} /> Печать ведомости
           </button>
@@ -312,7 +280,10 @@ export function PayrollPage() {
         <label><span>Поиск</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Сотрудник или должность" /></label>
         <button type="button" onClick={() => { const range = monthRange(0); setDateFrom(range.dateFrom); setDateTo(range.dateTo); }}>Этот месяц</button>
         <button type="button" onClick={() => { const range = monthRange(-1); setDateFrom(range.dateFrom); setDateTo(range.dateTo); }}>Прошлый месяц</button>
-        <button type="button" onClick={loadPayroll}><RefreshCw size={16} /> Рассчитать</button>
+        <button type="button" onClick={loadPayroll} disabled={isCalculating}>
+          {isCalculating ? <LoaderCircle size={16} className={styles.spin} /> : <RefreshCw size={16} />}
+          {isCalculating ? "Рассчитываю..." : "Рассчитать"}
+        </button>
       </section>
 
       <section className={styles.summary}>
@@ -355,35 +326,21 @@ export function PayrollPage() {
           <table>
             <thead>
               <tr>
-                <th>Сотрудник</th><th>Должность</th><th>Схема</th><th>Оклад/мес</th><th>Ставка</th><th>База</th><th>Продажи</th><th>Выручка</th><th>Прибыль</th><th>Оклад</th><th>Бонус/процент</th><th>К выплате</th>
+                <th>Сотрудник</th><th>Должность</th><th>Продажи</th><th>Выручка</th><th>Прибыль</th><th>Оклад</th><th>Бонус/процент</th><th>К выплате</th>
               </tr>
             </thead>
             <tbody>
               {visibleRows.map((row) => (
                 <tr key={row.id} className={!row.payroll.enabled ? styles.disabledRow : ""}>
                   <td>
-                    <label className={styles.employeeCell}>
-                      <input type="checkbox" checked={row.payroll.enabled} disabled={row.id.startsWith("skeleton-")} onChange={(event) => patchRow(row.id, { enabled: event.target.checked })} />
+                    <div className={styles.employeeCell}>
                       <span>
                         <strong>{row.name}</strong>
                         <small>{row.loadingSales ? "Догружаю продажи..." : row.payroll.enabled ? "Участвует" : "Выключен"}</small>
                       </span>
-                    </label>
+                    </div>
                   </td>
                   <td>{displayPosition(row)}</td>
-                  <td>
-                    <select value={row.payroll.scheme} disabled={row.id.startsWith("skeleton-")} onChange={(event) => patchRow(row.id, { scheme: event.target.value as PayrollScheme })}>
-                      {Object.entries(schemeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
-                  </td>
-                  <td><input type="number" value={row.payroll.monthlySalary} readOnly /></td>
-                  <td><input type="number" min="0" max="100" step="0.1" value={row.payroll.percent} disabled={row.id.startsWith("skeleton-") || !["percent", "salary_percent"].includes(row.payroll.scheme)} onChange={(event) => patchRow(row.id, { percent: Number(event.target.value) })} /></td>
-                  <td>
-                    <select value={row.payroll.percentBase} disabled={row.id.startsWith("skeleton-") || !["percent", "salary_percent"].includes(row.payroll.scheme)} onChange={(event) => patchRow(row.id, { percentBase: event.target.value as PayrollPercentBase })}>
-                      <option value="revenue">Выручка</option>
-                      <option value="profit">Прибыль</option>
-                    </select>
-                  </td>
                   <td>
                     <button className={styles.detailButton} type="button" disabled={row.loadingSales || row.id.startsWith("skeleton-")} onClick={() => setSelectedEmployeeId(row.id)}>
                       {row.loadingSales ? <LoaderCircle size={15} className={styles.spin} /> : <Eye size={15} />} {number(row.documents)}
@@ -396,7 +353,7 @@ export function PayrollPage() {
                   <td><strong>{row.loadingSales ? "..." : money(row.totalSalary)}</strong></td>
                 </tr>
               ))}
-              {!visibleRows.length ? <tr><td colSpan={12}>{isInitialLoading ? "Загрузка..." : "Сотрудники не найдены."}</td></tr> : null}
+              {!visibleRows.length ? <tr><td colSpan={8}>{isInitialLoading ? "Загрузка..." : "Сотрудники не найдены."}</td></tr> : null}
             </tbody>
           </table>
         </div>

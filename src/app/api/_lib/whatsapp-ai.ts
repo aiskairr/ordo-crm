@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { moySkladRateLimitedFetch } from "./moysklad-rate-limiter";
 
 export type StoredWhatsappMessage = {
   id: string;
@@ -614,7 +615,7 @@ async function getWhatsappProductStock(token: string, productHref: string, store
   const url = new URL(`${getMoySkladBaseUrl()}/report/stock/all`);
   url.searchParams.set("limit", "1");
   url.searchParams.set("filter", storeHref ? `store=${storeHref};product=${productHref}` : `product=${productHref}`);
-  const response = await fetch(url, {
+  const response = await moySkladRateLimitedFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json;charset=utf-8",
@@ -734,7 +735,7 @@ export async function findMoySkladProductsForWhatsapp(query: string) {
       url.searchParams.set("limit", "40");
       url.searchParams.set("search", search);
       url.searchParams.set("expand", "productFolder");
-      const response = await fetch(url, {
+      const response = await moySkladRateLimitedFetch(url, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json;charset=utf-8",

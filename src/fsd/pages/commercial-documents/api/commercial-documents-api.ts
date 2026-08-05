@@ -162,11 +162,11 @@ function normalizeCustomer(value: unknown): CommercialCustomer {
   };
 }
 
-export async function searchCommercialProducts(search: string, storeHref = ""): Promise<CommercialProduct[]> {
+export async function searchCommercialProducts(search: string, storeHref = "", signal?: AbortSignal): Promise<CommercialProduct[]> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   if (storeHref) params.set("storeHref", storeHref);
-  return asArray(await apiClient<unknown>(`/api/products?${params.toString()}`), "products").map(normalizeProduct).filter((item) => item.href);
+  return asArray(await apiClient<unknown>(`/api/products?${params.toString()}`, { signal }), "products").map(normalizeProduct).filter((item) => item.href);
 }
 
 export async function searchCommercialCustomers(search: string): Promise<CommercialCustomer[]> {

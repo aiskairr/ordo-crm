@@ -1,4 +1,5 @@
 import type { CrmRole } from "@/src/fsd/entities/user";
+import type { AttendanceSelfie } from "@/src/fsd/features/attendance-selfie";
 import { apiClient } from "@/src/fsd/shared/api";
 
 export type AttendanceUser = {
@@ -23,7 +24,7 @@ export type AttendanceRecord = {
   currentWorkMinutes: number;
   lateMinutes: number;
   status: "open" | "closed";
-  source?: "geo" | "admin";
+  source?: "geo" | "wifi" | "admin";
   autoClosed?: boolean;
 };
 
@@ -53,7 +54,31 @@ export type AttendanceEvent = {
 export type AttendanceStatus = {
   status: "working" | "not_working";
   openRecord: AttendanceRecord | null;
+  dayStatus: {
+    code: string;
+    kind: string;
+    label: string;
+    workingDay: boolean;
+    workEndsAt: string;
+  };
   now: string;
+};
+
+export type AttendanceNetworkStatus = {
+  configured: boolean;
+  allowed: boolean;
+  clientIp: string;
+  branchKey: string;
+  branchName: string;
+  storeId: string;
+  message: string;
+};
+
+export type AttendanceNetworkSettings = {
+  ayu: string[];
+  besh: string[];
+  updatedAt: string;
+  currentIp: string;
 };
 
 export type AttendanceBranchSchedule = {
@@ -61,6 +86,22 @@ export type AttendanceBranchSchedule = {
   label: string;
   workStartsAt: string;
   workEndsAt: string;
+  workDays: number[];
+};
+
+export type AttendanceCalendarKind = "holiday" | "day_off" | "leave" | "short_day";
+
+export type AttendanceCalendarEntry = {
+  id: string;
+  kind: AttendanceCalendarKind;
+  dateFrom: string;
+  dateTo: string;
+  userId: string;
+  storeId: string;
+  title: string;
+  workEndsAt: string;
+  createdAt: string;
+  createdBy: string;
 };
 
 export type AttendanceReport = {
@@ -68,6 +109,7 @@ export type AttendanceReport = {
   events: AttendanceEvent[];
   stores: AttendanceStore[];
   users: AttendanceUser[];
+  calendar: AttendanceCalendarEntry[];
   totals: {
     records: number;
     open: number;
@@ -90,22 +132,6 @@ export type AttendanceScanResult = {
   record: AttendanceRecord;
   store: AttendanceStore;
   distanceMeters: number;
-};
-
-export type AttendanceStorePayload = {
-  name: string;
-  branch: string;
-  address: string;
-  latitude: number;
-  longitude: number;
-  allowedRadiusMeters: number;
-};
-
-export type AttendanceShiftPayload = {
-  storeId: string;
-  latitude: number;
-  longitude: number;
-  deviceInfo: string;
 };
 
 export type AttendanceSchedulePayload = {
@@ -164,7 +190,7 @@ function normalizeUser(value: unknown): AttendanceUser {
 function normalizeRecord(value: unknown): AttendanceRecord {
   const record = asRecord(value);
   const status = record.status === "open" ? "open" : "closed";
-  const source = record.source === "admin" ? "admin" : record.source === "geo" ? "geo" : undefined;
+  const source = record.source === "admin" ? "admin" : record.source === "wifi" ? "wifi" : record.source === "geo" ? "geo" : undefined;
 
   return {
     id: asString(record.id),
@@ -214,6 +240,24 @@ function normalizeEvent(value: unknown): AttendanceEvent {
   };
 }
 
+function normalizeCalendarEntry(value: unknown): AttendanceCalendarEntry {
+  const record = asRecord(value);
+  const kinds: AttendanceCalendarKind[] = ["holiday", "day_off", "leave", "short_day"];
+  const kind = kinds.includes(record.kind as AttendanceCalendarKind) ? record.kind as AttendanceCalendarKind : "day_off";
+  return {
+    id: asString(record.id),
+    kind,
+    dateFrom: asString(record.dateFrom),
+    dateTo: asString(record.dateTo),
+    userId: asString(record.userId),
+    storeId: asString(record.storeId),
+    title: asString(record.title),
+    workEndsAt: asString(record.workEndsAt),
+    createdAt: asString(record.createdAt),
+    createdBy: asString(record.createdBy),
+  };
+}
+
 export async function getCrmSession() {
   const payload = asRecord(await apiClient<unknown>("/api/crm/session"));
   const user = payload.user ? normalizeUser(payload.user) : null;
@@ -222,18 +266,64 @@ export async function getCrmSession() {
 
 export async function getAttendanceStatus(): Promise<AttendanceStatus> {
   const payload = asRecord(await apiClient<unknown>("/api/attendance/status"));
+  const dayStatus = asRecord(payload.dayStatus);
   return {
     status: payload.status === "working" ? "working" : "not_working",
     openRecord: payload.openRecord ? normalizeRecord(payload.openRecord) : null,
+    dayStatus: {
+      code: asString(dayStatus.code),
+      kind: asString(dayStatus.kind, "workday"),
+      label: asString(dayStatus.label, "Рабочий день"),
+      workingDay: asBoolean(dayStatus.workingDay, true),
+      workEndsAt: asString(dayStatus.workEndsAt),
+    },
     now: asString(payload.now),
   };
 }
 
-export async function openAttendanceShift(input: AttendanceShiftPayload): Promise<AttendanceScanResult> {
+export async function getAttendanceNetworkStatus(): Promise<AttendanceNetworkStatus> {
+  const payload = asRecord(await apiClient<unknown>("/api/attendance/network-status"));
+  return {
+    configured: asBoolean(payload.configured),
+    allowed: asBoolean(payload.allowed),
+    clientIp: asString(payload.clientIp),
+    branchKey: asString(payload.branchKey),
+    branchName: asString(payload.branchName),
+    storeId: asString(payload.storeId),
+    message: asString(payload.message),
+  };
+}
+
+export async function getAttendanceNetworkSettings(): Promise<AttendanceNetworkSettings> {
+  const payload = asRecord(await apiClient<unknown>("/api/attendance/network-settings"));
+  const settings = asRecord(payload.settings);
+  return {
+    ayu: asArray(settings.ayu).map(String),
+    besh: asArray(settings.besh).map(String),
+    updatedAt: asString(settings.updatedAt),
+    currentIp: asString(payload.currentIp),
+  };
+}
+
+export async function saveAttendanceNetworkSettings(input: { ayu: string[]; besh: string[] }) {
+  const payload = asRecord(await apiClient<unknown>("/api/attendance/network-settings", {
+    method: "PUT",
+    body: input,
+  }));
+  const settings = asRecord(payload.settings);
+  return {
+    ayu: asArray(settings.ayu).map(String),
+    besh: asArray(settings.besh).map(String),
+    updatedAt: asString(settings.updatedAt),
+    currentIp: "",
+  } satisfies AttendanceNetworkSettings;
+}
+
+export async function openAttendanceShift(selfie: AttendanceSelfie): Promise<AttendanceScanResult> {
   const payload = asRecord(
     await apiClient<unknown>("/api/attendance/open", {
       method: "POST",
-      body: input,
+      body: { selfie },
     }),
   );
 
@@ -248,11 +338,11 @@ export async function openAttendanceShift(input: AttendanceShiftPayload): Promis
   };
 }
 
-export async function closeAttendanceShift(input: AttendanceShiftPayload): Promise<AttendanceScanResult> {
+export async function closeAttendanceShift(selfie: AttendanceSelfie): Promise<AttendanceScanResult> {
   const payload = asRecord(
     await apiClient<unknown>("/api/attendance/close", {
       method: "POST",
-      body: input,
+      body: { selfie },
     }),
   );
 
@@ -288,6 +378,7 @@ export async function getAttendanceReport(params: {
     events: asArray(payload.events).map(normalizeEvent),
     stores: asArray(payload.stores).map(normalizeStore),
     users: asArray(payload.users).map(normalizeUser),
+    calendar: asArray(payload.calendar).map(normalizeCalendarEntry),
     totals: {
       records: asNumber(totals.records),
       open: asNumber(totals.open),
@@ -305,27 +396,11 @@ export async function getAttendanceReport(params: {
           label: asString(record.label),
           workStartsAt: asString(record.workStartsAt, "09:00"),
           workEndsAt: asString(record.workEndsAt, "18:00"),
+          workDays: asArray(record.workDays).map(Number).filter((day) => day >= 1 && day <= 7),
         };
       }),
     },
   };
-}
-
-export async function saveAttendanceStore(payload: AttendanceStorePayload & { id?: string }) {
-  const response = asRecord(
-    await apiClient<unknown>(payload.id ? `/api/attendance/stores/${payload.id}` : "/api/attendance/stores", {
-      method: payload.id ? "PUT" : "POST",
-      body: payload,
-    }),
-  );
-  return normalizeStore(response.store);
-}
-
-export async function deleteAttendanceStore(storeId: string) {
-  await apiClient<unknown>(`/api/attendance/stores/${storeId}`, {
-    method: "DELETE",
-  });
-  return storeId;
 }
 
 export async function saveAttendanceSchedule(payload: AttendanceSchedulePayload) {
@@ -346,27 +421,25 @@ export async function saveAttendanceSchedule(payload: AttendanceSchedulePayload)
         label: asString(record.label),
         workStartsAt: asString(record.workStartsAt, payload.workStartsAt),
         workEndsAt: asString(record.workEndsAt, payload.workEndsAt),
+        workDays: asArray(record.workDays).map(Number).filter((day) => day >= 1 && day <= 7),
       };
     }),
   };
 }
 
-export async function adminOpenAttendanceShift(input: { userId: string; storeId: string }) {
-  const response = asRecord(
-    await apiClient<unknown>("/api/attendance/admin-open", {
-      method: "POST",
-      body: input,
-    }),
-  );
-  return normalizeRecord(response.record);
+export async function createAttendanceCalendarEntry(input: {
+  kind: AttendanceCalendarKind;
+  dateFrom: string;
+  dateTo: string;
+  userId: string;
+  storeId: string;
+  title: string;
+  workEndsAt: string;
+}) {
+  const payload = asRecord(await apiClient<unknown>("/api/attendance/calendar", { method: "POST", body: input }));
+  return normalizeCalendarEntry(payload.entry);
 }
 
-export async function manualAttendanceMark(input: { userId: string; storeId: string; action: "check_in" | "check_out"; timestamp: string }) {
-  const response = asRecord(
-    await apiClient<unknown>("/api/attendance/manual", {
-      method: "POST",
-      body: input,
-    }),
-  );
-  return normalizeRecord(response.record);
+export async function deleteAttendanceCalendarEntry(id: string) {
+  return apiClient<{ ok: boolean }>(`/api/attendance/calendar/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

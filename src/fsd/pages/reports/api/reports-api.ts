@@ -57,6 +57,8 @@ export type ReportRow = {
   employeeName: string;
   employeeHref?: string;
   paymentType: string;
+  paymentTypeCorrected?: boolean;
+  commissionCorrected?: boolean;
   comment: string;
   webUrl: string;
   productText: string;
@@ -216,6 +218,8 @@ function normalizeRow(value: unknown): ReportRow {
     employeeName: asString(record.employeeName ?? record.employee_name),
     employeeHref: asString(record.employeeHref ?? record.employee_href),
     paymentType: asString(record.paymentType ?? record.payment_type),
+    paymentTypeCorrected: record.paymentTypeCorrected === true || record.payment_type_corrected === true,
+    commissionCorrected: record.commissionCorrected === true || record.commission_corrected === true,
     comment: asString(record.comment),
     webUrl: asString(record.webUrl ?? record.web_url),
     productText: asString(record.productText ?? record.product_text),

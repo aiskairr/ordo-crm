@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SuperAdminIntegrationStatus } from "./types";
+import { moySkladRateLimitedFetch } from "../moysklad-rate-limiter";
 
 async function timedCheck(
   input: Omit<SuperAdminIntegrationStatus, "checkedAt" | "responseTimeMs">,
@@ -60,9 +61,11 @@ export async function getSuperAdminIntegrationChecks(supabaseReady: boolean) {
       status: moySkladToken ? "warning" : "not_configured",
       message: moySkladToken ? "Ожидает проверки" : "MOYSKLAD_TOKEN отсутствует",
     }, moySkladToken ? async () => {
-      const response = await checkedFetch("https://api.moysklad.ru/api/remap/1.2/context/companysettings", {
-        Authorization: `Bearer ${moySkladToken}`,
-        Accept: "application/json;charset=utf-8",
+      const response = await moySkladRateLimitedFetch("https://api.moysklad.ru/api/remap/1.2/context/companysettings", {
+        headers: {
+          Authorization: `Bearer ${moySkladToken}`,
+          Accept: "application/json;charset=utf-8",
+        },
       });
       return { ok: response.ok, message: response.ok ? "API МойСклад доступен" : `МойСклад вернул ${response.status}` };
     } : undefined),
