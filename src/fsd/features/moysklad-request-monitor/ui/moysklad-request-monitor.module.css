@@ -148,6 +148,12 @@
   .expanded { max-height: min(310px, calc(100dvh - 20px)); overflow-y: auto; }
 }
 
+@media (max-width: 860px) {
+  .monitor {
+    display: none !important;
+  }
+}
+
 @media print {
   .monitor { display: none !important; }
 }

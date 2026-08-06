@@ -12,9 +12,15 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: var(--tg-viewport-stable-height, 100dvh);
   width: 88px;
-  padding: 20px 12px;
-  overflow: auto;
+  padding: 20px 12px max(20px, env(safe-area-inset-bottom));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-color: rgba(229, 237, 247, 0.32) transparent;
+  scrollbar-width: thin;
   background:
     radial-gradient(circle at top right, rgba(112, 130, 255, 0.14), transparent 18%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 28%),
@@ -22,6 +28,19 @@
   color: #e5edf7;
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   transition: width 180ms ease, box-shadow 180ms ease;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(229, 237, 247, 0.3);
 }
 
 .sidebar:hover,
@@ -40,6 +59,7 @@
   width: 100%;
   overflow: hidden;
   transition: min-height 180ms ease;
+  flex: 0 0 auto;
 }
 
 .sidebar:hover .logo,
@@ -123,6 +143,8 @@
   display: grid;
   justify-items: start;
   gap: 14px;
+  width: 100%;
+  flex: 0 0 auto;
 }
 
 .navGroup {
@@ -222,9 +244,10 @@
   grid-template-columns: 42px 1fr;
   align-items: center;
   gap: 10px;
-  margin-top: auto;
+  margin-top: 18px;
   padding: 18px 0 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
+  flex: 0 0 auto;
 }
 
 .userBlock > div:not(.avatar) {
@@ -899,11 +922,41 @@
 
   .sidebar {
     position: fixed;
-    z-index: 20;
+    z-index: 50;
     inset: 0 auto 0 0;
+    height: 100svh;
+    height: 100dvh;
     width: 290px;
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    overflow: hidden;
     transform: translateX(-100%);
     transition: transform 180ms ease;
+  }
+
+  .nav {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .userBlock {
+    position: relative;
+    z-index: 2;
+    margin-top: 8px;
+    padding-top: 12px;
+    padding-bottom: 4px;
+    background: color-mix(in srgb, var(--sidebar) 94%, black);
+  }
+
+  .logoutAction {
+    position: relative;
+    z-index: 3;
+    touch-action: manipulation;
   }
 
   .open {

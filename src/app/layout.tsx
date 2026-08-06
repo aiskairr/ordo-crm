@@ -6,6 +6,12 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Ordo CRM",
   description: "CRM для продаж, сотрудников и операционных процессов",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Ordo CRM",
+    statusBarStyle: "black-translucent",
+  },
   icons: {
     icon: "/ordo-logo.svg",
     shortcut: "/ordo-logo.svg",
