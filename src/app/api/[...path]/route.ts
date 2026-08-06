@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { NextRequest, NextResponse } from "next/server";
+import sharp from "sharp";
 import {
   authenticateSuperAdmin,
   createSuperAdminSessionToken,
@@ -6618,7 +6619,37 @@ function buildCommercialInvoice(payload: JsonRecord) {
 </html>`;
 }
 
-async function fetchMoySkladImageAsDataUrl(token: string, source: JsonRecord) {
+type MoySkladImageOptimization = {
+  maxDimension: number;
+  quality: number;
+};
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+async function fetchMoySkladImageAsDataUrl(
+  token: string,
+  source: JsonRecord,
+  optimization?: MoySkladImageOptimization,
+) {
   const candidates = [
     asString(source.downloadHref),
     asString(asRecord(source.meta).downloadHref),
@@ -6633,6 +6664,25 @@ async function fetchMoySkladImageAsDataUrl(token: string, source: JsonRecord) {
     if (!response?.ok) continue;
     const buffer = Buffer.from(await response.arrayBuffer());
     const contentType = response.headers.get("content-type") || "image/jpeg";
+
+    if (optimization) {
+      try {
+        const optimized = await sharp(buffer, { limitInputPixels: 40_000_000 })
+          .rotate()
+          .resize({
+            width: optimization.maxDimension,
+            height: optimization.maxDimension,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
+          .webp({ quality: optimization.quality, effort: 3 })
+          .toBuffer();
+        return `data:image/webp;base64,${optimized.toString("base64")}`;
+      } catch (caught) {
+        console.warn("MoySklad catalog image optimization failed; using the source image.", caught);
+      }
+    }
+
     return `data:${contentType};base64,${buffer.toString("base64")}`;
   }
 
@@ -6665,8 +6715,17 @@ function normalizeProductCatalogHref(value: unknown) {
 }
 
 async function getProductCatalogLogoDataUrl(fileName: string) {
-  const contents = await readFile(path.join(process.cwd(), "public", fileName), "utf8");
-  return `data:image/svg+xml;base64,${Buffer.from(contents, "utf8").toString("base64")}`;
+  const contents = await readFile(path.join(process.cwd(), "public", fileName));
+  try {
+    const optimized = await sharp(contents, { density: 144 })
+      .resize({ width: 720, height: 240, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 86, effort: 3 })
+      .toBuffer();
+    return `data:image/webp;base64,${optimized.toString("base64")}`;
+  } catch (caught) {
+    console.warn(`Catalog logo ${fileName} optimization failed; using SVG.`, caught);
+    return `data:image/svg+xml;base64,${contents.toString("base64")}`;
+  }
 }
 
 async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCatalogProduct[]> {
@@ -6689,7 +6748,7 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
     return { href, fallback: item };
   });
 
-  return Promise.all(items.map(async ({ href, fallback }) => {
+  return mapWithConcurrency(items, 2, async ({ href, fallback }) => {
     const detailUrl = new URL(href);
     detailUrl.searchParams.set("expand", "productFolder,images");
     const response = await moyskladFetch(detailUrl.toString(), {
@@ -6704,8 +6763,13 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
     const imageRows = Array.isArray(asRecord(product.images).rows)
       ? asRecord(product.images).rows as unknown[]
       : [];
-    const imageDataUrls = (await Promise.all(
-      imageRows.map((image) => fetchMoySkladImageAsDataUrl(token, asRecord(image))),
+    const imageDataUrls = (await mapWithConcurrency(
+      imageRows,
+      1,
+      (image) => fetchMoySkladImageAsDataUrl(token, asRecord(image), {
+        maxDimension: 1000,
+        quality: 78,
+      }),
     )).filter(Boolean);
     const characteristics = Array.isArray(product.attributes)
       ? product.attributes
@@ -6737,7 +6801,7 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
       characteristics,
       imageDataUrls,
     };
-  }));
+  });
 }
 
 async function createProductCatalogPrintable(payload: JsonRecord) {
@@ -6757,7 +6821,7 @@ async function createProductCatalogPrintable(payload: JsonRecord) {
     partnerLogoDataUrl,
     products,
   });
-  return renderHtmlToPrintableFile(html, "katalog-belek-tehnika");
+  return renderHtmlToPrintableFile(html, "katalog-belek-tehnika", 60_000);
 }
 
 async function getCommercialProposalProducts(payload: JsonRecord) {
@@ -7166,7 +7230,7 @@ async function createCommercialProposalLink(payload: JsonRecord) {
   };
 }
 
-async function renderHtmlToPrintableFile(html: string, baseName: string) {
+async function renderHtmlToPrintableFile(html: string, baseName: string, timeoutMs = 30_000) {
   const chromePath = asString(process.env.CHROME_BIN).trim();
   if (!chromePath) {
     return {
@@ -7186,12 +7250,13 @@ async function renderHtmlToPrintableFile(html: string, baseName: string) {
       [
         "--headless=new",
         "--disable-gpu",
+        "--disable-dev-shm-usage",
         "--allow-file-access-from-files",
         "--no-pdf-header-footer",
         `--print-to-pdf=${pdfPath}`,
         htmlPath,
       ],
-      { timeout: 30000 },
+      { timeout: timeoutMs },
     );
     return {
       content: await readFile(pdfPath),
