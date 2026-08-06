@@ -501,6 +501,11 @@
   display: none;
 }
 
+.mobileBackdrop,
+.sidebarClose {
+  display: none;
+}
+
 .noAccess {
   display: grid;
   gap: 8px;
@@ -900,24 +905,45 @@
 @media (max-width: 860px) {
   .shell {
     display: block;
-    padding-top: 54px;
+    padding-top: calc(54px + env(safe-area-inset-top));
   }
 
   .mobileToggle {
     position: fixed;
-    z-index: 30;
-    top: 10px;
-    left: 10px;
+    z-index: 70;
+    top: calc(10px + env(safe-area-inset-top));
+    left: calc(10px + env(safe-area-inset-left));
     display: inline-flex;
-    width: 42px;
-    min-height: 42px;
+    width: 46px;
+    min-height: 46px;
     justify-content: center;
     align-items: center;
     border: 0;
-    border-radius: 7px;
+    border-radius: 12px;
     background: var(--sidebar);
     color: #ffffff;
     padding: 0;
+    touch-action: manipulation;
+    box-shadow: 0 10px 28px rgba(8, 13, 30, 0.28);
+  }
+
+  .mobileToggleHidden {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .mobileBackdrop {
+    position: fixed;
+    z-index: 40;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: rgba(6, 10, 24, 0.54);
+    padding: 0;
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
   }
 
   .sidebar {
@@ -932,6 +958,24 @@
     overflow: hidden;
     transform: translateX(-100%);
     transition: transform 180ms ease;
+  }
+
+  .sidebarClose {
+    position: absolute;
+    z-index: 4;
+    top: calc(10px + env(safe-area-inset-top));
+    right: calc(12px + env(safe-area-inset-right));
+    display: inline-flex;
+    width: 44px;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    padding: 0;
+    touch-action: manipulation;
   }
 
   .nav {

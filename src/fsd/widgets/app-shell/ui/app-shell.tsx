@@ -25,6 +25,7 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  X,
 } from "lucide-react";
 import { ROLE_LABELS } from "@/src/fsd/entities/user";
 import { NAV_ITEMS } from "@/src/fsd/shared/config/navigation";
@@ -282,10 +283,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </section>
         </div>
       ) : null}
-      <button className={styles.mobileToggle} onClick={() => setIsOpen((value) => !value)} aria-label="Открыть меню">
+      <button
+        className={`${styles.mobileToggle} ${isOpen ? styles.mobileToggleHidden : ""}`}
+        type="button"
+        onClick={() => setIsOpen(true)}
+        aria-label="Открыть меню"
+        aria-expanded={isOpen}
+        aria-controls="crm-mobile-sidebar"
+      >
         <Menu size={18} />
       </button>
-      <aside className={`${styles.sidebar} ${isOpen ? styles.open : ""}`}>
+      {isOpen ? <button type="button" className={styles.mobileBackdrop} onClick={() => setIsOpen(false)} aria-label="Закрыть меню" /> : null}
+      <aside id="crm-mobile-sidebar" className={`${styles.sidebar} ${isOpen ? styles.open : ""}`}>
+        <button type="button" className={styles.sidebarClose} onClick={() => setIsOpen(false)} aria-label="Закрыть меню">
+          <X size={22} />
+        </button>
         <div className={styles.logo}>
           <span className={styles.logoCompact} aria-hidden="true">
             O
