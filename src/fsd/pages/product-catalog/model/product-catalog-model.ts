@@ -1,5 +1,11 @@
 export const PRODUCT_CATALOG_MAX_PRODUCTS = 20;
 
+export type CatalogPrice = {
+  name: string;
+  value: number;
+  currency: string;
+};
+
 export type CatalogProduct = {
   href: string;
   name: string;
@@ -7,12 +13,14 @@ export type CatalogProduct = {
   article: string;
   price: number;
   stock: number;
+  prices: CatalogPrice[];
 };
 
 export type ProductCatalogPayload = {
   title: string;
   subtitle: string;
   showPrices: boolean;
+  priceTypeName: string;
   items: CatalogProduct[];
 };
 

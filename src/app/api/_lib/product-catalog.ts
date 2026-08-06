@@ -7,6 +7,9 @@ export type ProductCatalogProduct = {
   folderName: string;
   description: string;
   price: number;
+  priceLabel: string;
+  priceCurrency: string;
+  priceAvailable: boolean;
   characteristics: Array<{ name: string; value: string }>;
   imageDataUrls: string[];
 };
@@ -43,6 +46,13 @@ function formatDate(value: Date) {
     month: "long",
     year: "numeric",
   }).format(value);
+}
+
+function formatCurrency(value: string) {
+  const currency = value.trim().toUpperCase();
+  if (currency === "KGS" || currency === "KGZ" || currency.includes("СОМ")) return "сом";
+  if (currency === "USD" || currency.includes("ДОЛЛАР")) return "USD";
+  return value.trim() || "сом";
 }
 
 function renderLogos(document: ProductCatalogDocument, compact = false) {
@@ -116,7 +126,7 @@ function renderProduct(document: ProductCatalogDocument, product: ProductCatalog
             <h2>${escapeHtml(product.name)}</h2>
             ${meta ? `<div class="meta">${meta}</div>` : ""}
           </div>
-          ${document.showPrices ? `<div class="price"><span>Цена</span><strong>${escapeHtml(formatMoney(product.price))}</strong><small>сом</small></div>` : ""}
+          ${document.showPrices ? `<div class="price ${product.priceAvailable ? "" : "price--empty"}"><span>${escapeHtml(product.priceLabel || "Цена")}</span>${product.priceAvailable ? `<strong>${escapeHtml(formatMoney(product.price))}</strong><small>${escapeHtml(formatCurrency(product.priceCurrency))}</small>` : `<strong>Не задана</strong>`}</div>` : ""}
         </section>
         ${product.description ? `<section class="details-block description"><h3>О товаре</h3><p>${escapeHtml(product.description)}</p></section>` : ""}
         ${renderCharacteristics(product)}

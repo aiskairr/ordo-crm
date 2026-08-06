@@ -176,6 +176,7 @@
 }
 
 .formGrid input,
+.formGrid select,
 .searchBox input {
   width: 100%;
   border: 1px solid rgba(47, 54, 75, 0.18);
@@ -186,13 +187,19 @@
   outline: none;
 }
 
-.formGrid input {
+.formGrid input,
+.formGrid select {
   min-height: 50px;
   border-radius: 13px;
   padding: 0 14px;
 }
 
+.formGrid label:last-child {
+  grid-column: 1 / -1;
+}
+
 .formGrid input:focus,
+.formGrid select:focus,
 .searchBox:focus-within {
   border-color: rgba(255, 22, 22, 0.75);
   box-shadow: 0 0 0 4px rgba(255, 22, 22, 0.09);

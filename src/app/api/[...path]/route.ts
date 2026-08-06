@@ -2547,6 +2547,34 @@ function getProductSalePrice(row: JsonRecord, preferredName = process.env.MOYSKL
   return asNumber(selected?.value) / 100;
 }
 
+function getProductCatalogPriceOptions(row: JsonRecord, currenciesByHref = new Map<string, AccountingCurrency>()) {
+  const options: Array<{ name: string; value: number; currency: string }> = [];
+  const append = (name: string, value: JsonRecord) => {
+    if (!name) return;
+    const currency = resolveAccountingCurrency(asRecord(value.currency), currenciesByHref);
+    options.push({
+      name,
+      value: fromMoySkladPrice(value.value),
+      currency: currency.isoCode || currency.name || "KGS",
+    });
+  };
+
+  const minPrice = asRecord(row.minPrice);
+  if (minPrice.value !== undefined) append("Минимальная цена", minPrice);
+  const salePrices = Array.isArray(row.salePrices) ? row.salePrices.map(asRecord) : [];
+  for (const salePrice of salePrices) {
+    append(asString(asRecord(salePrice.priceType).name, "Цена продажи"), salePrice);
+  }
+
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    const key = normalizeEmployeeKey(option.name);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function getProductBuyPrice(row: JsonRecord, currenciesByHref = new Map<string, AccountingCurrency>()) {
   const buyPrice = asRecord(row.buyPrice);
   const rawCost = fromMoySkladPrice(buyPrice.value);
@@ -2609,6 +2637,7 @@ function mapMoySkladProductForSales(
     article: asString(row.article),
     barcode: getProductBarcode(row),
     price: getProductSalePrice(row),
+    prices: getProductCatalogPriceOptions(row, currenciesByHref),
     cost: getProductBuyPrice(row, currenciesByHref),
     stock,
   };
@@ -6648,6 +6677,9 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
   }
 
   const token = getMoySkladToken();
+  const requestedPriceType = asString(payload.priceTypeName).trim();
+  const normalizedRequestedPriceType = normalizeEmployeeKey(requestedPriceType);
+  const currenciesByHref = await getMoySkladAccountingCurrencies().catch(() => new Map<string, AccountingCurrency>());
   const seen = new Set<string>();
   const items = rawItems.map((item) => {
     const href = normalizeProductCatalogHref(item.href || item.assortmentHref);
@@ -6685,6 +6717,12 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
         .filter((attribute) => attribute.name && attribute.value)
       : [];
     const fallbackPrice = asNumber(fallback.price || fallback.productPrice);
+    const priceOptions = getProductCatalogPriceOptions(product, currenciesByHref);
+    const preferredPriceType = normalizeEmployeeKey(process.env.MOYSKLAD_PRODUCT_PRICE_NAME || "3-6");
+    const selectedPrice = normalizedRequestedPriceType
+      ? priceOptions.find((option) => normalizeEmployeeKey(option.name) === normalizedRequestedPriceType)
+      : priceOptions.find((option) => normalizeEmployeeKey(option.name).includes(preferredPriceType)) || priceOptions[0];
+    const selectedPriceValue = selectedPrice?.value ?? (normalizedRequestedPriceType ? 0 : getProductSalePrice(product) || fallbackPrice);
 
     return {
       name: asString(product.name, asString(fallback.name, "Товар")),
@@ -6692,7 +6730,10 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
       article: asString(product.article || fallback.article || fallback.sku),
       folderName: asString(asRecord(product.productFolder).name),
       description: asString(product.description),
-      price: getProductSalePrice(product) || fallbackPrice,
+      price: selectedPriceValue,
+      priceLabel: requestedPriceType || selectedPrice?.name || "Цена",
+      priceCurrency: selectedPrice?.currency || "KGS",
+      priceAvailable: selectedPriceValue > 0,
       characteristics,
       imageDataUrls,
     };

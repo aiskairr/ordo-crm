@@ -29,6 +29,21 @@ function formatMoney(value: number) {
   return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value || 0);
 }
 
+function formatCurrency(value: string) {
+  const currency = value.trim().toUpperCase();
+  if (currency === "KGS" || currency === "KGZ" || currency.includes("СОМ")) return "сом";
+  if (currency === "USD" || currency.includes("ДОЛЛАР")) return "USD";
+  return value || "сом";
+}
+
+function getCatalogPrice(product: CatalogProduct, priceTypeName: string) {
+  const normalizedName = priceTypeName.trim().toLocaleLowerCase("ru-RU");
+  const selected = normalizedName
+    ? product.prices.find((price) => price.name.trim().toLocaleLowerCase("ru-RU") === normalizedName)
+    : null;
+  return selected || { name: "Цена по умолчанию", value: product.price, currency: "KGS" };
+}
+
 function openCatalogFile(file: ProductCatalogFile) {
   const objectUrl = URL.createObjectURL(file.blob);
   if (file.contentType.includes("application/pdf")) {
@@ -73,6 +88,7 @@ export function ProductCatalogPage() {
   const [title, setTitle] = useState("Каталог техники");
   const [subtitle, setSubtitle] = useState("Техника для дома с актуальными фотографиями и ценами");
   const [showPrices, setShowPrices] = useState(true);
+  const [priceTypeName, setPriceTypeName] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 450);
@@ -96,6 +112,16 @@ export function ProductCatalogPage() {
   }, [productsQuery.error, showToast]);
 
   const selectedHrefs = useMemo(() => new Set(selectedProducts.map((product) => product.href)), [selectedProducts]);
+  const availablePriceTypes = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const product of selectedProducts) {
+      for (const price of product.prices) {
+        const key = price.name.trim().toLocaleLowerCase("ru-RU");
+        if (key && !options.has(key)) options.set(key, price.name);
+      }
+    }
+    return [...options.values()];
+  }, [selectedProducts]);
   const searchResults = productsQuery.data ?? [];
 
   const catalogMutation = useMutation({
@@ -137,6 +163,7 @@ export function ProductCatalogPage() {
       title: title.trim() || "Каталог техники",
       subtitle: subtitle.trim(),
       showPrices,
+      priceTypeName,
       items: selectedProducts,
     });
   };
@@ -174,6 +201,13 @@ export function ProductCatalogPage() {
               <label>
                 <span>Подзаголовок</span>
                 <input value={subtitle} maxLength={240} onChange={(event) => setSubtitle(event.target.value)} placeholder="Короткое описание подборки" />
+              </label>
+              <label>
+                <span>Вид цены в каталоге</span>
+                <select value={priceTypeName} onChange={(event) => setPriceTypeName(event.target.value)}>
+                  <option value="">Цена по умолчанию</option>
+                  {availablePriceTypes.map((priceName) => <option key={priceName} value={priceName}>{priceName}</option>)}
+                </select>
               </label>
             </div>
             <label className={styles.switchRow}>
@@ -241,7 +275,7 @@ export function ProductCatalogPage() {
                     <div className={styles.itemNumber}>{String(index + 1).padStart(2, "0")}</div>
                     <div className={styles.itemInfo}>
                       <strong>{product.name}</strong>
-                      <span>{product.code ? `Код ${product.code}` : "Без кода"} · {formatMoney(product.price)} сом</span>
+                      <span>{product.code ? `Код ${product.code}` : "Без кода"} · {formatMoney(getCatalogPrice(product, priceTypeName).value)} {formatCurrency(getCatalogPrice(product, priceTypeName).currency)}</span>
                     </div>
                     <div className={styles.itemActions}>
                       <button type="button" onClick={() => setSelectedProducts((current) => moveCatalogProduct(current, index, -1))} disabled={index === 0} aria-label="Поднять товар"><ArrowUp size={18} /></button>
@@ -278,7 +312,7 @@ export function ProductCatalogPage() {
           <div className={styles.summaryInfo}>
             <div><span>Формат</span><strong>A4 · PDF</strong></div>
             <div><span>Фотографии</span><strong>Все из МойСклад</strong></div>
-            <div><span>Цена</span><strong>{showPrices ? "Показывать" : "Скрыть"}</strong></div>
+            <div><span>Цена</span><strong>{showPrices ? priceTypeName || "По умолчанию" : "Скрыть"}</strong></div>
           </div>
 
           <button className={styles.generateButton} type="button" onClick={createCatalog} disabled={!selectedProducts.length || catalogMutation.isPending}>

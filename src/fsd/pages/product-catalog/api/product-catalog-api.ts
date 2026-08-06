@@ -23,6 +23,14 @@ function getHeaderFileName(header: string | null) {
 
 function normalizeProduct(value: unknown): CatalogProduct {
   const row = asRecord(value);
+  const prices = Array.isArray(row.prices) ? row.prices.map((price) => {
+    const record = asRecord(price);
+    return {
+      name: asString(record.name),
+      value: asNumber(record.value),
+      currency: asString(record.currency),
+    };
+  }).filter((price) => price.name) : [];
   return {
     href: asString(row.href),
     name: asString(row.name),
@@ -30,6 +38,7 @@ function normalizeProduct(value: unknown): CatalogProduct {
     article: asString(row.article || row.sku),
     price: asNumber(row.price),
     stock: asNumber(row.stock),
+    prices,
   };
 }
 
