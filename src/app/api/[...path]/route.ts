@@ -29,6 +29,15 @@ import {
 } from "../_lib/system-announcements";
 import { renderTelegramSaleCard } from "../_lib/telegram-sale-card";
 import { getAttendanceNetworkSettings, saveAttendanceNetworkSettings } from "../_lib/attendance-network-settings";
+import {
+  AttendanceRecordsStorageError,
+  canUseSupabaseAttendanceRecords,
+  closeSupabaseAttendanceRecord,
+  createSupabaseAttendanceRecord,
+  getOpenSupabaseAttendanceRecord,
+  listSupabaseAttendanceRecords,
+  updateSupabaseAttendanceTelegramResult,
+} from "../_lib/attendance-records";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -5298,14 +5307,12 @@ function isAttendanceScheduledWorkday(data: AppData, date: string, store?: Atten
 }
 
 function combineAttendanceDateTime(source: string, clock: string) {
-  const date = new Date(source);
-  const [hours, minutes] = String(clock || "00:00").split(":").map((value) => Number(value) || 0);
-  date.setHours(hours, minutes, 0, 0);
-  return date;
+  const normalizedClock = /^\d{2}:\d{2}$/.test(clock) ? clock : "00:00";
+  return new Date(`${getBishkekAttendanceDate(source)}T${normalizedClock}:00+06:00`);
 }
 
 function getAttendanceLateMinutes(record: AttendanceRecord, data: AppData, store?: AttendanceStore | null) {
-  const date = record.checkInTime.slice(0, 10);
+  const date = getBishkekAttendanceDate(record.checkInTime);
   const calendarEntry = findAttendanceCalendarEntry(data, date, record.userId, store);
   if (calendarEntry && ["holiday", "day_off", "leave"].includes(calendarEntry.kind)) return 0;
   if (!isAttendanceScheduledWorkday(data, date, store)) return 0;
@@ -5314,17 +5321,26 @@ function getAttendanceLateMinutes(record: AttendanceRecord, data: AppData, store
   return Math.max(0, Math.round((checkIn.getTime() - startAt.getTime()) / 60000));
 }
 
+function getAttendanceAutoCloseTime(record: AttendanceRecord, data: AppData, store?: AttendanceStore | null) {
+  const attendanceDate = getBishkekAttendanceDate(record.checkInTime);
+  const calendarEntry = findAttendanceCalendarEntry(data, attendanceDate, record.userId, store);
+  const workEndsAt = calendarEntry?.kind === "short_day" && calendarEntry.workEndsAt
+    ? calendarEntry.workEndsAt
+    : getAttendanceStoreSchedule(data.attendanceSchedule, store).workEndsAt;
+  const scheduledEnd = combineAttendanceDateTime(record.checkInTime, workEndsAt);
+  const checkIn = new Date(record.checkInTime);
+  const maximumShiftEnd = new Date(checkIn.getTime() + 16 * 60 * 60 * 1000);
+  if (scheduledEnd.getTime() <= checkIn.getTime()) return maximumShiftEnd;
+  return scheduledEnd.getTime() < maximumShiftEnd.getTime() ? scheduledEnd : maximumShiftEnd;
+}
+
 function autoCloseAttendanceRecords(data: AppData) {
   const now = new Date();
   let changed = false;
   for (const record of data.attendanceRecords) {
     if (record.status !== "open") continue;
     const store = data.attendanceStores.find((item) => item.id === record.storeId) || null;
-    const calendarEntry = findAttendanceCalendarEntry(data, record.checkInTime.slice(0, 10), record.userId, store);
-    const workEndsAt = calendarEntry?.kind === "short_day" && calendarEntry.workEndsAt
-      ? calendarEntry.workEndsAt
-      : getAttendanceStoreSchedule(data.attendanceSchedule, store).workEndsAt;
-    const endAt = combineAttendanceDateTime(record.checkInTime, workEndsAt);
+    const endAt = getAttendanceAutoCloseTime(record, data, store);
     if (now.getTime() < endAt.getTime()) continue;
     record.status = "closed";
     record.checkOutTime = endAt.toISOString();
@@ -5334,6 +5350,20 @@ function autoCloseAttendanceRecords(data: AppData) {
     changed = true;
   }
   return changed;
+}
+
+async function autoCloseSupabaseAttendanceRecord(record: AttendanceRecord, data: AppData) {
+  if (record.status !== "open") return record;
+  const store = resolveAttendanceBranch(data, record.storeId);
+  const endAt = getAttendanceAutoCloseTime(record, data, store);
+  if (Date.now() < endAt.getTime()) return record;
+  const closed = await closeSupabaseAttendanceRecord({
+    id: record.id,
+    checkOutTime: endAt.toISOString(),
+    totalWorkMinutes: minutesBetween(record.checkInTime, endAt.toISOString()),
+    checkOutIp: "",
+  });
+  return closed satisfies AttendanceRecord;
 }
 
 function getDefaultAttendanceBranches(schedule: AttendanceSchedule): AttendanceStore[] {
@@ -5366,13 +5396,13 @@ function resolveAttendanceBranch(data: AppData, storeId: string) {
     || null;
 }
 
-function getBishkekAttendanceDate() {
+function getBishkekAttendanceDate(value: string | Date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Bishkek",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  }).format(typeof value === "string" ? new Date(value) : value);
 }
 
 function resolveAttendanceUserStore(data: AppData, user: Pick<CrmUser, "branches">) {
@@ -5709,6 +5739,20 @@ async function sendTelegramAttendanceSelfie(input: {
   return messageId;
 }
 
+async function sendTelegramAttendanceSelfieSafely(input: Parameters<typeof sendTelegramAttendanceSelfie>[0]) {
+  try {
+    return { sent: true, messageId: await sendTelegramAttendanceSelfie(input), error: "" };
+  } catch (caught) {
+    const message = caught instanceof Response
+      ? await caught.text()
+      : caught instanceof Error
+        ? caught.message
+        : "Не удалось отправить селфи в Telegram.";
+    console.error("Telegram attendance selfie delivery failed:", message);
+    return { sent: false, messageId: 0, error: message };
+  }
+}
+
 function getTelegramReceiptConfig() {
   const token = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
   const chatId = String(process.env.TELEGRAM_RECEIPT_CHAT_ID || "").trim();
@@ -5762,9 +5806,19 @@ async function sendTelegramPhoto(token: string, chatId: string, buffer: Buffer, 
   form.set("chat_id", chatId);
   form.set("photo", new Blob([arrayBuffer], { type: asString(receiptPhoto.mimeType, "image/jpeg") }), asString(receiptPhoto.name, "receipt.jpg"));
   form.set("caption", caption);
-  const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: "POST", body: form });
-  const payload = await response.json().catch(() => null) as unknown;
-  return { response, payload: asRecord(payload) };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null) as unknown;
+    return { response, payload: asRecord(payload) };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function sendTelegramPhotoGroup(token: string, chatId: string, receiptPhotos: JsonRecord[], caption: string) {
@@ -7329,14 +7383,21 @@ async function handleExpenses(request: NextRequest, parts: string[], data: AppDa
 
 async function handleAttendance(request: NextRequest, parts: string[], data: AppData) {
   const user = await requireFreshUser(request, data);
-  if (autoCloseAttendanceRecords(data)) {
+  const useSupabaseRecords = canUseSupabaseAttendanceRecords(user.id);
+  if (!useSupabaseRecords && autoCloseAttendanceRecords(data)) {
     await writeData(data);
   }
   if (parts[1] === "status" && request.method === "GET") {
-    const openRecord = data.attendanceRecords.find((record) => record.userId === user.id && record.status === "open");
+    const storedOpenRecord = useSupabaseRecords
+      ? await getOpenSupabaseAttendanceRecord(user.id)
+      : data.attendanceRecords.find((record) => record.userId === user.id && record.status === "open") || null;
+    const openRecord = storedOpenRecord && useSupabaseRecords
+      ? await autoCloseSupabaseAttendanceRecord(storedOpenRecord, data)
+      : storedOpenRecord;
+    const activeOpenRecord = openRecord?.status === "open" ? openRecord : null;
     return json({
-      status: openRecord ? "working" : "not_working",
-      openRecord: openRecord ? currentAttendanceRecord(openRecord) : null,
+      status: activeOpenRecord ? "working" : "not_working",
+      openRecord: activeOpenRecord ? currentAttendanceRecord(activeOpenRecord) : null,
       dayStatus: getAttendanceDayStatus(data, user),
       now: new Date().toISOString(),
     });
@@ -7413,26 +7474,34 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
     const attendanceUsers = managedUsers.filter(isAttendanceParticipant);
     const attendanceUserIds = new Set(attendanceUsers.map((item) => item.id));
     const attendanceBranches = getAttendanceBranches(data);
+    const canViewAllAttendance = user.role === "owner";
     const url = new URL(request.url);
     const dateFrom = url.searchParams.get("date_from") || url.searchParams.get("dateFrom") || "";
     const dateTo = url.searchParams.get("date_to") || url.searchParams.get("dateTo") || "";
-    const userId = url.searchParams.get("user_id") || url.searchParams.get("userId") || "";
+    const requestedUserId = url.searchParams.get("user_id") || url.searchParams.get("userId") || "";
+    const userId = canViewAllAttendance ? requestedUserId : user.id;
     const storeId = url.searchParams.get("store_id") || url.searchParams.get("storeId") || "";
-    const rows = data.attendanceRecords
+    const useSupabaseReport = isSupabaseCrmEnabled() && (canViewAllAttendance || isUuid(user.id));
+    const storedRows = useSupabaseReport
+      ? await listSupabaseAttendanceRecords({ dateFrom, dateTo, userId, storeId })
+      : data.attendanceRecords;
+    const rows = storedRows
       .map(currentAttendanceRecord)
       .filter((row) => {
         if (!attendanceUserIds.has(row.userId)) return false;
         if (userId && row.userId !== userId) return false;
         if (storeId && row.storeId !== storeId) return false;
-        const rowDate = row.checkInTime.slice(0, 10);
+        const rowDate = getBishkekAttendanceDate(row.checkInTime);
         if (dateFrom && rowDate < dateFrom) return false;
         if (dateTo && rowDate > dateTo) return false;
         return true;
       });
+    const calendarUserId = canViewAllAttendance ? requestedUserId : user.role === "admin" ? "" : user.id;
     const calendar = data.attendanceCalendar.filter((entry) => {
       if (dateFrom && entry.dateTo < dateFrom) return false;
       if (dateTo && entry.dateFrom > dateTo) return false;
-      if (userId && entry.userId && entry.userId !== userId) return false;
+      if (!canViewAllAttendance && user.role !== "admin" && entry.userId && entry.userId !== user.id) return false;
+      if (calendarUserId && entry.userId && entry.userId !== calendarUserId) return false;
       if (storeId && entry.storeId && slugifyAttendanceBranch(entry.storeId) !== slugifyAttendanceBranch(storeId)) return false;
       return true;
     });
@@ -7441,7 +7510,8 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
       calendar,
       events: [],
       stores: attendanceBranches,
-      users: attendanceUsers,
+      users: canViewAllAttendance ? attendanceUsers : attendanceUsers.filter((item) => item.id === user.id),
+      managementUsers: user.role === "admin" ? attendanceUsers : [],
       totals: {
         records: rows.length,
         open: rows.filter((row) => row.status === "open").length,
@@ -7456,8 +7526,20 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
     const payload = await body(request);
     const selfie = validateAttendanceSelfie(payload.selfie);
     if (!isAttendanceParticipant(user)) return error(403, "Эта роль не участвует в табеле посещаемости");
-    const existingOpen = data.attendanceRecords.find((item) => item.userId === user.id && item.status === "open");
-    if (existingOpen) return error(409, "У сотрудника уже есть открытая смена");
+    const existingOpen = useSupabaseRecords
+      ? await getOpenSupabaseAttendanceRecord(user.id)
+      : data.attendanceRecords.find((item) => item.userId === user.id && item.status === "open");
+    if (existingOpen) {
+      return json({
+        ok: true,
+        action: "check_in",
+        message: "Смена уже открыта",
+        status: "working",
+        record: currentAttendanceRecord(existingOpen),
+        store: resolveAttendanceBranch(data, existingOpen.storeId),
+        distanceMeters: 0,
+      });
+    }
     const networkAccess = await getAttendanceNetworkAccess(request, user, data);
     if (!networkAccess.allowed) {
       return error(networkAccess.configured ? 403 : 400, networkAccess.message);
@@ -7481,42 +7563,118 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
       source: "wifi",
     };
     record.lateMinutes = getAttendanceLateMinutes(record, data, store);
-    record.telegramOpenMessageId = await sendTelegramAttendanceSelfie({
+    let storedRecord = record;
+    if (useSupabaseRecords) {
+      try {
+        storedRecord = await createSupabaseAttendanceRecord(record, networkAccess.clientIp);
+      } catch (caught) {
+        if (caught instanceof AttendanceRecordsStorageError && caught.status === 409) {
+          const concurrentRecord = await getOpenSupabaseAttendanceRecord(user.id);
+          if (concurrentRecord) {
+            return json({
+              ok: true,
+              action: "check_in",
+              message: "Смена уже открыта",
+              status: "working",
+              record: currentAttendanceRecord(concurrentRecord),
+              store: resolveAttendanceBranch(data, concurrentRecord.storeId),
+              distanceMeters: 0,
+            });
+          }
+        }
+        throw caught;
+      }
+    }
+    if (!useSupabaseRecords) {
+      data.attendanceRecords.unshift(storedRecord);
+      await writeData(data);
+    }
+    const telegram = await sendTelegramAttendanceSelfieSafely({
       selfie,
       action: "open",
       userName: user.name,
       storeName: store.name,
-      timestamp: record.checkInTime,
+      timestamp: storedRecord.checkInTime,
       clientIp: networkAccess.clientIpMasked,
     });
-    data.attendanceRecords.unshift(record);
-    await writeData(data);
-    return json({ ok: true, action: "check_in", message: "Смена открыта", status: "working", record, store, distanceMeters: 0 });
+    if (telegram.messageId) storedRecord.telegramOpenMessageId = telegram.messageId;
+    if (useSupabaseRecords) {
+      await updateSupabaseAttendanceTelegramResult({
+        id: storedRecord.id,
+        action: "open",
+        messageId: telegram.messageId,
+        error: telegram.error,
+      }).catch((caught) => console.error("Attendance Telegram result was not stored:", caught));
+    } else {
+      await writeData(data);
+    }
+    return json({
+      ok: true,
+      action: "check_in",
+      message: telegram.sent ? "Смена открыта" : "Смена открыта. Telegram временно не принял селфи.",
+      status: "working",
+      record: storedRecord,
+      store,
+      distanceMeters: 0,
+      telegram,
+    });
   }
   if (parts[1] === "close" && request.method === "POST") {
     const payload = await body(request);
     const selfie = validateAttendanceSelfie(payload.selfie);
-    const record = data.attendanceRecords.find((item) => item.userId === user.id && item.status === "open");
+    const record = useSupabaseRecords
+      ? await getOpenSupabaseAttendanceRecord(user.id)
+      : data.attendanceRecords.find((item) => item.userId === user.id && item.status === "open");
     if (!record) return error(400, "Открытой смены нет");
     const checkOutTime = new Date().toISOString();
     const totalWorkMinutes = minutesBetween(record.checkInTime, checkOutTime);
-    record.telegramCloseMessageId = await sendTelegramAttendanceSelfie({
+    const storedRecord = useSupabaseRecords
+      ? await closeSupabaseAttendanceRecord({
+          id: record.id,
+          checkOutTime,
+          totalWorkMinutes,
+          checkOutIp: getAttendanceClientIp(request),
+        })
+      : record;
+    if (!useSupabaseRecords) {
+      storedRecord.status = "closed";
+      storedRecord.checkOutTime = checkOutTime;
+      storedRecord.totalWorkMinutes = totalWorkMinutes;
+      storedRecord.currentWorkMinutes = totalWorkMinutes;
+      storedRecord.checkOutDistanceMeters = 0;
+      await writeData(data);
+    }
+    const telegram = await sendTelegramAttendanceSelfieSafely({
       selfie,
       action: "close",
       userName: user.name,
-      storeName: record.storeName,
+      storeName: storedRecord.storeName,
       timestamp: checkOutTime,
       clientIp: maskAttendanceIp(getAttendanceClientIp(request)),
       workMinutes: totalWorkMinutes,
     });
-    record.status = "closed";
-    record.checkOutTime = checkOutTime;
-    record.totalWorkMinutes = totalWorkMinutes;
-    record.currentWorkMinutes = record.totalWorkMinutes;
-    record.checkOutDistanceMeters = 0;
-    await writeData(data);
-    const store = resolveAttendanceBranch(data, record.storeId);
-    return json({ ok: true, action: "check_out", message: "Смена закрыта", status: "not_working", record, store, distanceMeters: 0 });
+    if (telegram.messageId) storedRecord.telegramCloseMessageId = telegram.messageId;
+    if (useSupabaseRecords) {
+      await updateSupabaseAttendanceTelegramResult({
+        id: storedRecord.id,
+        action: "close",
+        messageId: telegram.messageId,
+        error: telegram.error,
+      }).catch((caught) => console.error("Attendance Telegram result was not stored:", caught));
+    } else {
+      await writeData(data);
+    }
+    const store = resolveAttendanceBranch(data, storedRecord.storeId);
+    return json({
+      ok: true,
+      action: "check_out",
+      message: telegram.sent ? "Смена закрыта" : "Смена закрыта. Telegram временно не принял селфи.",
+      status: "not_working",
+      record: storedRecord,
+      store,
+      distanceMeters: 0,
+      telegram,
+    });
   }
   if (parts[1] === "schedule" && request.method === "PUT") {
     if (user.role !== "admin") {
@@ -7976,6 +8134,7 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     if (root === "commercial-documents") return json({ ok: true, id: randomUUID(), document: { id: randomUUID(), type: "customerorder" } });
   } catch (caught) {
     if (caught instanceof Response) return error(caught.status, await caught.text());
+    if (caught instanceof AttendanceRecordsStorageError) return error(caught.status, caught.message);
     return error(500, caught instanceof Error ? caught.message : "Internal server error");
   }
 

@@ -90,13 +90,14 @@ export function AttendancePage() {
     refetchOnWindowFocus: true,
     staleTime: 15_000,
   });
+  const currentUser = sessionQuery.data?.user ?? null;
+  const ownerView = currentUser?.role === "owner";
   const reportQuery = useQuery({
-    queryKey: ["attendance-report", dateFrom, dateTo, userId, storeId],
-    queryFn: () => getAttendanceReport({ dateFrom, dateTo, userId, storeId }),
-    enabled: Boolean(sessionQuery.data?.user),
+    queryKey: ["attendance-report", currentUser?.id ?? "anonymous", dateFrom, dateTo, ownerView ? userId : "self", storeId],
+    queryFn: () => getAttendanceReport({ dateFrom, dateTo, userId: ownerView ? userId : "", storeId }),
+    enabled: Boolean(currentUser),
   });
 
-  const currentUser = sessionQuery.data?.user ?? null;
   const working = statusQuery.data?.status === "working";
   const managerView = canViewReports(currentUser);
   const adminView = canManageAttendance(currentUser);
@@ -123,6 +124,16 @@ export function AttendancePage() {
       return true;
     });
   }, [report?.users]);
+  const calendarUsers = useMemo(() => {
+    const source = adminView ? report?.managementUsers ?? [] : uniqueUsers;
+    const seen = new Set<string>();
+    return source.filter((employee) => {
+      const key = (employee.login || employee.name || employee.id).trim().toLocaleLowerCase("ru-RU");
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [adminView, report?.managementUsers, uniqueUsers]);
   const schedule = scheduleDraft ?? report?.schedule ?? { workStartsAt: "09:00", workEndsAt: "18:00", branches: [] };
   const branchOptions = useMemo(() => {
     if (schedule.branches.length) {
@@ -322,7 +333,7 @@ export function AttendancePage() {
               <div className={styles.sectionHead}>
                 <div>
                   <p>Отчеты</p>
-                  <h2>Табель сотрудников</h2>
+                  <h2>{ownerView ? "Табель сотрудников" : "Мой табель"}</h2>
                 </div>
                 <button type="button" className={styles.secondaryButton} onClick={() => exportAttendanceCsv(report?.rows ?? [], dateFrom, dateTo)}>
                   <Download size={18} />
@@ -338,17 +349,19 @@ export function AttendancePage() {
                   <span>По дату</span>
                   <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
                 </label>
-                <label className={styles.field}>
-                  <span>Сотрудник</span>
-                  <select value={userId} onChange={(event) => setUserId(event.target.value)}>
-                    <option value="">Все сотрудники</option>
-                    {uniqueUsers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {ownerView ? (
+                  <label className={styles.field}>
+                    <span>Сотрудник</span>
+                    <select value={userId} onChange={(event) => setUserId(event.target.value)}>
+                      <option value="">Все сотрудники</option>
+                      {uniqueUsers.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <label className={styles.field}>
                   <span>Филиал</span>
                   <select value={storeId} onChange={(event) => setStoreId(event.target.value)}>
@@ -536,7 +549,7 @@ export function AttendancePage() {
                       <span>Сотрудник</span>
                       <select value={calendarDraft.userId} onChange={(event) => setCalendarDraft({ ...calendarDraft, userId: event.target.value })}>
                         <option value="">Выберите сотрудника</option>
-                        {uniqueUsers.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                        {calendarUsers.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
                       </select>
                     </label>
                   ) : (
@@ -565,7 +578,7 @@ export function AttendancePage() {
                   <div className={styles.calendarList}>
                     {(report?.calendar ?? []).map((entry) => {
                       const labels = { holiday: "П", day_off: "В", leave: "ОТ", short_day: "СД" };
-                      const employee = uniqueUsers.find((item) => item.id === entry.userId);
+                      const employee = calendarUsers.find((item) => item.id === entry.userId);
                       const branch = branchOptions.find((item) => normalizedBranchForUi(item.id) === normalizedBranchForUi(entry.storeId));
                       return (
                         <article key={entry.id}>

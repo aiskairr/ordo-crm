@@ -109,6 +109,7 @@ export type AttendanceReport = {
   events: AttendanceEvent[];
   stores: AttendanceStore[];
   users: AttendanceUser[];
+  managementUsers: AttendanceUser[];
   calendar: AttendanceCalendarEntry[];
   totals: {
     records: number;
@@ -378,6 +379,7 @@ export async function getAttendanceReport(params: {
     events: asArray(payload.events).map(normalizeEvent),
     stores: asArray(payload.stores).map(normalizeStore),
     users: asArray(payload.users).map(normalizeUser),
+    managementUsers: asArray(payload.managementUsers).map(normalizeUser),
     calendar: asArray(payload.calendar).map(normalizeCalendarEntry),
     totals: {
       records: asNumber(totals.records),

@@ -14,7 +14,7 @@ export function canManageAttendance(user: Pick<AttendanceUser, "role"> | null) {
 }
 
 export function canViewReports(user: Pick<AttendanceUser, "role"> | null) {
-  return Boolean(user && ["admin", "owner", "manager"].includes(user.role));
+  return Boolean(user);
 }
 
 export function todayIsoDate() {
