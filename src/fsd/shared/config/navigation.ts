@@ -18,6 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { title: "Счета юрлицам", href: "/commercial-documents", permission: "commercialDocuments", isReact: true, group: "docs" },
   { title: "Акт сверки", href: "/reconciliation", permission: "reconciliation", isReact: true, group: "docs" },
   { title: "WhatsApp рассылка", href: "/whatsapp-broadcast", permission: "whatsappBroadcast", isReact: true, group: "tools" },
+  { title: "PDF-каталог", href: "/product-catalog", isReact: true, group: "tools" },
   { title: "Расчет цен", href: "/price-formula", permission: "priceFormula", isReact: true, group: "tools" },
   { title: "Калькулятор таможни", href: "/customs-calculator", permission: "customsCalculator", isReact: true, group: "tools" },
   { title: "Сотрудники и доступ", href: "/users-access", permission: "users", isReact: true, group: "admin" },

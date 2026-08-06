@@ -28,6 +28,7 @@ import {
   updateSystemAnnouncement,
 } from "../_lib/system-announcements";
 import { renderTelegramSaleCard } from "../_lib/telegram-sale-card";
+import { buildProductCatalogHtml, type ProductCatalogProduct } from "../_lib/product-catalog";
 import { getAttendanceNetworkSettings, saveAttendanceNetworkSettings } from "../_lib/attendance-network-settings";
 import {
   AttendanceRecordsStorageError,
@@ -521,6 +522,7 @@ function shouldUseLegacyBackend(request: NextRequest, parts: string[]) {
     "customs-calculator",
     "accounting",
     "commercial-documents",
+    "product-catalog",
   ]);
 
   return !localRoots.has(root);
@@ -6617,6 +6619,106 @@ function formatProposalAttributeValue(value: unknown) {
   return String(value);
 }
 
+const PRODUCT_CATALOG_MAX_PRODUCTS = 20;
+
+function normalizeProductCatalogHref(value: unknown) {
+  const href = asString(value).trim();
+  try {
+    const url = new URL(href);
+    const trustedPath = /^\/api\/remap\/1\.2\/entity\/product\/[0-9a-f-]+\/?$/i.test(url.pathname);
+    if (url.protocol !== "https:" || url.hostname !== "api.moysklad.ru" || !trustedPath) return "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+async function getProductCatalogLogoDataUrl(fileName: string) {
+  const contents = await readFile(path.join(process.cwd(), "public", fileName), "utf8");
+  return `data:image/svg+xml;base64,${Buffer.from(contents, "utf8").toString("base64")}`;
+}
+
+async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCatalogProduct[]> {
+  const rawItems = Array.isArray(payload.items) ? payload.items.map(asRecord) : [];
+  if (!rawItems.length) throw new Response("Выберите хотя бы один товар для каталога.", { status: 400 });
+  if (rawItems.length > PRODUCT_CATALOG_MAX_PRODUCTS) {
+    throw new Response(`В один каталог можно добавить не более ${PRODUCT_CATALOG_MAX_PRODUCTS} товаров.`, { status: 400 });
+  }
+
+  const token = getMoySkladToken();
+  const seen = new Set<string>();
+  const items = rawItems.map((item) => {
+    const href = normalizeProductCatalogHref(item.href || item.assortmentHref);
+    if (!href) throw new Response("Один из выбранных товаров содержит некорректную ссылку МойСклад.", { status: 400 });
+    if (seen.has(href)) throw new Response("В каталоге найден повторяющийся товар.", { status: 400 });
+    seen.add(href);
+    return { href, fallback: item };
+  });
+
+  return Promise.all(items.map(async ({ href, fallback }) => {
+    const detailUrl = new URL(href);
+    detailUrl.searchParams.set("expand", "productFolder,images");
+    const response = await moyskladFetch(detailUrl.toString(), {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json;charset=utf-8" },
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Response(`Не удалось загрузить карточку товара «${asString(fallback.name, "Товар")}» из МойСклад.`, { status: response.status });
+    }
+
+    const product = asRecord(payload);
+    const imageRows = Array.isArray(asRecord(product.images).rows)
+      ? asRecord(product.images).rows as unknown[]
+      : [];
+    const imageDataUrls = (await Promise.all(
+      imageRows.map((image) => fetchMoySkladImageAsDataUrl(token, asRecord(image))),
+    )).filter(Boolean);
+    const characteristics = Array.isArray(product.attributes)
+      ? product.attributes
+        .map(asRecord)
+        .map((attribute) => ({
+          name: asString(asRecord(attribute.meta).name),
+          value: formatProposalAttributeValue(attribute.value),
+        }))
+        .filter((attribute) => attribute.name && attribute.value)
+      : [];
+    const fallbackPrice = asNumber(fallback.price || fallback.productPrice);
+
+    return {
+      name: asString(product.name, asString(fallback.name, "Товар")),
+      code: asString(product.code || fallback.code),
+      article: asString(product.article || fallback.article || fallback.sku),
+      folderName: asString(asRecord(product.productFolder).name),
+      description: asString(product.description),
+      price: getProductSalePrice(product) || fallbackPrice,
+      characteristics,
+      imageDataUrls,
+    };
+  }));
+}
+
+async function createProductCatalogPrintable(payload: JsonRecord) {
+  const title = asString(payload.title, "Каталог техники").trim().slice(0, 80) || "Каталог техники";
+  const subtitle = asString(payload.subtitle).trim().slice(0, 240);
+  const [products, companyLogoDataUrl, partnerLogoDataUrl] = await Promise.all([
+    getProductCatalogProducts(payload),
+    getProductCatalogLogoDataUrl("belek-tehnika-logo.svg"),
+    getProductCatalogLogoDataUrl("gifton-logo.svg"),
+  ]);
+  const html = buildProductCatalogHtml({
+    title,
+    subtitle,
+    showPrices: payload.showPrices !== false,
+    createdAt: new Date(),
+    companyLogoDataUrl,
+    partnerLogoDataUrl,
+    products,
+  });
+  return renderHtmlToPrintableFile(html, "katalog-belek-tehnika");
+}
+
 async function getCommercialProposalProducts(payload: JsonRecord) {
   const token = getMoySkladToken();
   const items = Array.isArray(payload.items) ? payload.items.map(asRecord) : [];
@@ -8075,6 +8177,18 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
     if (root === "accounting" && parts[1] === "prices") return json(await getAccountingPriceCatalog(url));
     if (root === "accounting" && parts[1] === "supply-products") return json(await getAccountingSupplyProducts(url.searchParams.get("query") || url.searchParams.get("search") || ""));
     if (root === "accounting" && parts[1] === "price-formula") return json({ ok: true, updated: 0, failed: 0, results: [] });
+    if (root === "product-catalog" && parts[1] === "pdf" && request.method === "POST") {
+      await requireFreshUser(request, data);
+      const printable = await createProductCatalogPrintable(await body(request));
+      return new NextResponse(printable.content, {
+        status: 200,
+        headers: {
+          "Content-Type": printable.contentType,
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(printable.fileName)}`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
     if (root === "commercial-documents" && parts[1] === "word" && request.method === "POST") {
       return textFile(buildCommercialInvoice(await body(request)), "application/msword; charset=utf-8", "schet-na-oplatu.doc");
     }

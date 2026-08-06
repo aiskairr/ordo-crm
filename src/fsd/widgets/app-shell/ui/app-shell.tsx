@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  BookImage,
   Calculator,
   Clock3,
   CreditCard,
@@ -59,6 +60,7 @@ const icons = [
   FileCheck2,
   FileCheck2,
   MessageCircle,
+  BookImage,
   SlidersHorizontal,
   Calculator,
   UserCog,
