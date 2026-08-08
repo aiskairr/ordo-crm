@@ -1,3 +1,4 @@
+import { ATTENDANCE_AUTO_PERMISSION, ATTENDANCE_BRANCH_VIEW_PERMISSION } from "@/src/fsd/entities/user";
 import type { AttendanceRecord, AttendanceUser } from "../api/attendance-api";
 
 export const branchLabels: Record<string, string> = {
@@ -9,12 +10,39 @@ export function isAttendanceRequiredForUser(user: Pick<AttendanceUser, "role"> |
   return ["manager", "seller", "logistics", "accountant", "employee"].includes(user?.role ?? "");
 }
 
+export function isAutomaticAttendanceUser(user: Pick<AttendanceUser, "permissions"> | null) {
+  return Boolean(user?.permissions?.includes(ATTENDANCE_AUTO_PERMISSION));
+}
+
+export function isAttendanceOpeningTime(status: { now: string; dayStatus: { workingDay: boolean; workEndsAt: string } } | undefined) {
+  if (!status?.dayStatus.workingDay) return false;
+  if (!/^\d{2}:\d{2}$/.test(status.dayStatus.workEndsAt)) return true;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bishkek",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(status.now || Date.now()));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  const [endHour, endMinute] = status.dayStatus.workEndsAt.split(":").map(Number);
+  return hour * 60 + minute < endHour * 60 + endMinute;
+}
+
 export function canManageAttendance(user: Pick<AttendanceUser, "role"> | null) {
   return user?.role === "admin";
 }
 
 export function canViewReports(user: Pick<AttendanceUser, "role"> | null) {
   return Boolean(user);
+}
+
+export function canViewAttendanceTeam(user: Pick<AttendanceUser, "role" | "permissions"> | null) {
+  return Boolean(
+    user
+      && (["admin", "owner"].includes(user.role)
+        || user.permissions?.includes(ATTENDANCE_BRANCH_VIEW_PERMISSION)),
+  );
 }
 
 export function todayIsoDate() {

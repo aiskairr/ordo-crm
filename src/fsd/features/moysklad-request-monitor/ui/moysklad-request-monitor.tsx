@@ -11,7 +11,7 @@ function formatNumber(value: number) {
 }
 
 export function MoySkladRequestMonitor() {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const monitor = useQuery({
     queryKey: ["crm", "moysklad-request-monitor"],
     queryFn: getMoySkladRequestMonitor,
@@ -29,7 +29,7 @@ export function MoySkladRequestMonitor() {
 
   return (
     <aside className={`${styles.monitor} ${expanded ? styles.expanded : ""}`} aria-label="Монитор запросов МойСклад">
-      <button className={styles.header} type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
+      <button className={styles.header} type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} aria-label={expanded ? "Скрыть график запросов МойСклад" : "Показать график запросов МойСклад"}>
         <span className={`${styles.status} ${danger ? styles.danger : warning ? styles.warning : styles.safe}`}>
           {danger ? <AlertTriangle size={16} /> : <Activity size={16} />}
         </span>

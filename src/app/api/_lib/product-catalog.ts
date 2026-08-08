@@ -71,8 +71,12 @@ function renderGallery(product: ProductCatalogProduct) {
     </div>`;
   }
 
-  const imageCount = Math.min(product.imageDataUrls.length, 8);
-  return `<div class="gallery gallery--count-${imageCount} ${product.imageDataUrls.length === 1 ? "gallery--single" : ""}">
+  const imageCount = product.imageDataUrls.length;
+  const denseGallery = imageCount > 8;
+  const denseStyle = denseGallery
+    ? ` style="grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(${Math.ceil(imageCount / 3)},minmax(0,1fr))"`
+    : "";
+  return `<div class="gallery gallery--count-${Math.min(imageCount, 8)} ${imageCount === 1 ? "gallery--single" : ""} ${denseGallery ? "gallery--dense" : ""}"${denseStyle}>
     ${product.imageDataUrls.map((imageDataUrl, index) => `
       <figure class="photo-card ${index === 0 ? "photo-card--hero" : ""}">
         <img src="${imageDataUrl}" alt="${escapeHtml(product.name)} — фото ${index + 1}">
@@ -82,30 +86,9 @@ function renderGallery(product: ProductCatalogProduct) {
   </div>`;
 }
 
-function renderCharacteristics(product: ProductCatalogProduct) {
-  if (!product.characteristics.length) {
-    return `<section class="details-block details-empty">
-      <h3>Характеристики</h3>
-      <p>Характеристики товара пока не заполнены в МойСклад.</p>
-    </section>`;
-  }
-  return `<section class="details-block">
-    <h3>Характеристики</h3>
-    <div class="spec-grid">
-      ${product.characteristics.map((item) => `
-        <div class="spec-row">
-          <span>${escapeHtml(item.name)}</span>
-          <strong>${escapeHtml(item.value)}</strong>
-        </div>
-      `).join("")}
-    </div>
-  </section>`;
-}
-
 function renderProduct(document: ProductCatalogDocument, product: ProductCatalogProduct, index: number) {
   const meta = [
     product.folderName ? `<span>${escapeHtml(product.folderName)}</span>` : "",
-    product.code ? `<span>Код ${escapeHtml(product.code)}</span>` : "",
     product.article ? `<span>Артикул ${escapeHtml(product.article)}</span>` : "",
   ].filter(Boolean).join("");
 
@@ -126,19 +109,15 @@ function renderProduct(document: ProductCatalogDocument, product: ProductCatalog
             <h2>${escapeHtml(product.name)}</h2>
             ${meta ? `<div class="meta">${meta}</div>` : ""}
           </div>
-          ${document.showPrices ? `<div class="price ${product.priceAvailable ? "" : "price--empty"}"><span>${escapeHtml(product.priceLabel || "Цена")}</span>${product.priceAvailable ? `<strong>${escapeHtml(formatMoney(product.price))}</strong><small>${escapeHtml(formatCurrency(product.priceCurrency))}</small>` : `<strong>Не задана</strong>`}</div>` : ""}
         </section>
-        ${product.description ? `<section class="details-block description"><h3>О товаре</h3><p>${escapeHtml(product.description)}</p></section>` : ""}
-        ${renderCharacteristics(product)}
+        ${product.description ? `<section class="details-block description"><h3>Описание</h3><p>${escapeHtml(product.description)}</p></section>` : ""}
+        ${document.showPrices ? `<div class="price ${product.priceAvailable ? "" : "price--empty"}"><span>${escapeHtml(product.priceLabel || "Цена")}</span>${product.priceAvailable ? `<strong>${escapeHtml(formatMoney(product.price))}</strong><small>${escapeHtml(formatCurrency(product.priceCurrency))}</small>` : `<strong>Не задана</strong>`}</div>` : ""}
       </div>
     </section>
   </article>`;
 }
 
 export function buildProductCatalogHtml(document: ProductCatalogDocument) {
-  const productWord = document.products.length === 1 ? "товар" : document.products.length < 5 ? "товара" : "товаров";
-  const photoCount = document.products.reduce((total, product) => total + product.imageDataUrls.length, 0);
-
   return `<!doctype html>
 <html lang="ru">
 <head>
@@ -147,7 +126,7 @@ export function buildProductCatalogHtml(document: ProductCatalogDocument) {
   <title>${escapeHtml(document.title)}</title>
   <style>
     @page { size: A4; margin: 0; }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     :root {
       --red: #ff1515;
       --red-dark: #d70c0c;
@@ -173,19 +152,19 @@ export function buildProductCatalogHtml(document: ProductCatalogDocument) {
     .cover-content h1 { max-width: 175mm; margin: 0; font-size: 18mm; line-height: .95; letter-spacing: -.045em; }
     .cover-content h1 em { display: block; color: var(--red); font-style: normal; }
     .cover-content p { max-width: 145mm; margin: 5mm 0 0; color: #515151; font-size: 4.2mm; line-height: 1.35; }
-    .cover-summary { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; width: 137mm; }
+    .cover-summary { position: relative; z-index: 2; display: grid; width: 48mm; }
     .cover-summary div { min-height: 21mm; border: 1px solid #ededed; border-radius: 4mm; background: #fff; padding: 4mm; box-shadow: 0 4mm 9mm rgba(34,34,34,.07); }
     .cover-summary span { display: block; color: #858585; font-size: 2.7mm; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
     .cover-summary strong { display: block; margin-top: 2mm; font-size: 6mm; line-height: 1; }
-    .product-page { page-break-before: always; padding: 8mm 10mm 10mm; overflow: visible; }
+    .product-page { height: 297mm; min-height: 297mm; max-height: 297mm; padding: 8mm 10mm 10mm; overflow: hidden; break-before: page; page-break-before: always; break-after: page; page-break-after: always; break-inside: avoid; page-break-inside: avoid; }
     .product-header { display: flex; align-items: center; justify-content: space-between; min-height: 15mm; border-bottom: 1px solid var(--line); padding-bottom: 2.5mm; }
     .brand-lockup--compact { gap: 3mm; min-height: 10mm; }
     .brand-lockup--compact .brand-logo--company { width: 36mm; height: 10mm; }
     .brand-lockup--compact .brand-logo--partner { width: 25mm; height: 9mm; }
     .brand-lockup--compact .brand-divider { height: 8mm; }
     .product-number { border-radius: 999px; background: var(--red); color: #fff; font-size: 3.5mm; font-weight: 900; padding: 2.5mm 4mm; }
-    .product-layout { display: grid; grid-template-columns: minmax(0, 108mm) minmax(0, 1fr); min-height: 252mm; align-items: stretch; gap: 6mm; padding-top: 5mm; }
-    .product-media-column, .product-info-column { min-width: 0; min-height: 252mm; border-radius: 5mm; }
+    .product-layout { display: grid; grid-template-columns: minmax(0, 124mm) minmax(0, 1fr); height: 252mm; min-height: 0; align-items: stretch; gap: 5mm; padding-top: 5mm; overflow: hidden; }
+    .product-media-column, .product-info-column { min-width: 0; min-height: 0; height: 100%; overflow: hidden; border-radius: 5mm; }
     .product-media-column { display: grid; border: 1px solid #ededed; background: #fafafa; padding: 3mm; }
     .product-info-column { display: grid; align-content: start; gap: 4mm; border: 1px solid #ededed; border-top: 3mm solid var(--red); background: #fff; padding: 6mm 5mm; }
     .product-intro { display: grid; align-items: start; gap: 5mm; padding: 0 0 2mm; break-inside: avoid; page-break-inside: avoid; }
@@ -194,11 +173,11 @@ export function buildProductCatalogHtml(document: ProductCatalogDocument) {
     .product-intro h2 { max-width: 100%; margin: 1.5mm 0 0; font-size: 7.2mm; line-height: 1.05; letter-spacing: -.025em; overflow-wrap: anywhere; }
     .meta { display: flex; flex-wrap: wrap; gap: 2mm; margin-top: 4mm; }
     .meta span { border-radius: 999px; background: #f5f5f5; color: #5b5b5b; font-weight: 700; padding: 2mm 3mm; }
-    .price { width: 100%; border-radius: 4mm; background: var(--red); color: #fff; padding: 4mm; }
+    .price { width: 100%; border: 1px solid #e40000; border-radius: 4mm; background: #ff1010 !important; color: #fff !important; padding: 4mm; box-shadow: 0 3mm 7mm rgba(255,16,16,.2); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .price span { display: block; font-size: 2.8mm; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
     .price strong { display: inline-block; margin-top: 2mm; font-size: 8mm; line-height: 1; }
     .price small { margin-left: 1mm; font-size: 3.5mm; font-weight: 800; }
-    .gallery { display: grid; width: 100%; height: 100%; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(0, 1fr); gap: 3mm; }
+    .gallery { display: grid; width: 100%; height: 100%; min-height: 0; overflow: hidden; grid-template-columns: 1fr 1fr; grid-auto-rows: minmax(0, 1fr); gap: 3mm; break-inside: avoid; page-break-inside: avoid; }
     .gallery--single { grid-template-columns: 1fr; align-content: center; padding: 18mm 7mm; }
     .gallery--count-2 { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); }
     .gallery--count-3 { grid-template-rows: repeat(2, minmax(0, 1fr)); }
@@ -210,7 +189,8 @@ export function buildProductCatalogHtml(document: ProductCatalogDocument) {
     .gallery--count-7 { grid-template-rows: repeat(4, minmax(0, 1fr)); }
     .gallery--count-7 .photo-card:first-child { grid-column: 1 / -1; }
     .gallery--count-8 { grid-template-rows: repeat(4, minmax(0, 1fr)); }
-    .photo-card, .photo-card--hero { position: relative; display: grid; min-width: 0; min-height: 0; place-items: center; margin: 0; overflow: hidden; border: 1px solid #ededed; border-radius: 4mm; background: #fff; break-inside: avoid; page-break-inside: avoid; }
+    .gallery--dense .photo-card:first-child { grid-column: auto; grid-row: auto; }
+    .photo-card, .photo-card--hero { position: relative; display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; place-items: center; margin: 0; overflow: hidden; border: 1px solid #ededed; border-radius: 4mm; background: #fff; break-inside: avoid; page-break-inside: avoid; }
     .photo-card img, .photo-card--hero img { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #fff; }
     .photo-card figcaption { position: absolute; right: 2mm; bottom: 2mm; display: grid; place-items: center; width: 7mm; height: 7mm; border-radius: 50%; background: var(--red); color: #fff; font-size: 2.5mm; font-weight: 900; }
     .gallery-empty { display: grid; place-items: center; min-height: 65mm; border: 1px dashed #d5d5d5; border-radius: 4mm; background: #fafafa; color: #6b6b6b; text-align: center; }
@@ -229,6 +209,7 @@ export function buildProductCatalogHtml(document: ProductCatalogDocument) {
       html, body { background: #fff; }
       .print-tools { display: none !important; }
       .catalog-page, .product-page { margin: 0; box-shadow: none; }
+      .product-page { break-before: page; break-after: page; break-inside: avoid; }
     }
     @media screen and (max-width: 900px) {
       .catalog-page, .product-page { transform-origin: top left; }
@@ -245,8 +226,6 @@ export function buildProductCatalogHtml(document: ProductCatalogDocument) {
       ${document.subtitle ? `<p>${escapeHtml(document.subtitle)}</p>` : ""}
     </div>
     <div class="cover-summary">
-      <div><span>Подборка</span><strong>${document.products.length} ${productWord}</strong></div>
-      <div><span>Фотографий</span><strong>${photoCount}</strong></div>
       <div><span>Сформирован</span><strong>${escapeHtml(formatDate(document.createdAt))}</strong></div>
     </div>
   </section>

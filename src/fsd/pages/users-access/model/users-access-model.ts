@@ -1,4 +1,4 @@
-import type { CrmRole, CrmUser } from "@/src/fsd/entities/user";
+import { ATTENDANCE_AUTO_PERMISSION, ATTENDANCE_BRANCH_VIEW_PERMISSION, type CrmRole, type CrmUser } from "@/src/fsd/entities/user";
 import { createDefaultPayrollConfig, type PayrollConfig } from "@/src/fsd/entities/payroll";
 
 export const BRANCHES = {
@@ -57,11 +57,19 @@ export function normalizeLogin(login: string) {
 }
 
 export function normalizePermissions(role: CrmRole, permissions: string[]) {
+  const automaticAttendance = permissions.includes(ATTENDANCE_AUTO_PERMISSION);
+  const branchAttendanceView = permissions.includes(ATTENDANCE_BRANCH_VIEW_PERMISSION);
   if (ADMIN_ROLES.includes(role)) {
-    return [...ROLE_DEFAULT_PERMISSIONS[role]];
+    return [
+      ...ROLE_DEFAULT_PERMISSIONS[role],
+      ...(automaticAttendance ? [ATTENDANCE_AUTO_PERMISSION] : []),
+      ...(branchAttendanceView ? [ATTENDANCE_BRANCH_VIEW_PERMISSION] : []),
+    ];
   }
   const allowed = new Set(Object.keys(PERMISSIONS));
   const normalized = [...new Set((permissions || []).map(String).filter((permission) => allowed.has(permission)))];
+  if (automaticAttendance) normalized.push(ATTENDANCE_AUTO_PERMISSION);
+  if (branchAttendanceView) normalized.push(ATTENDANCE_BRANCH_VIEW_PERMISSION);
   if (!REPORT_PROFIT_ROLES.includes(role)) {
     return normalized.filter((permission) => permission !== "reportProfit" && permission !== "editDocumentPrices");
   }

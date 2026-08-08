@@ -150,8 +150,6 @@ export function ProductCatalogPage() {
       return;
     }
     setSelectedProducts((current) => [...current, product]);
-    setSearch("");
-    setDebouncedSearch("");
   };
 
   const createCatalog = () => {

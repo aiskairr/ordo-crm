@@ -1,5 +1,8 @@
 export type CrmRole = "admin" | "owner" | "manager" | "seller" | "logistics" | "accountant" | "employee";
 
+export const ATTENDANCE_AUTO_PERMISSION = "attendanceAutoSchedule";
+export const ATTENDANCE_BRANCH_VIEW_PERMISSION = "attendanceBranchView";
+
 export type CrmUser = {
   id: string;
   name: string;

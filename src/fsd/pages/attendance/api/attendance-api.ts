@@ -8,6 +8,7 @@ export type AttendanceUser = {
   login?: string;
   role: CrmRole;
   branches: string[];
+  permissions: string[];
 };
 
 export type AttendanceRecord = {
@@ -89,7 +90,7 @@ export type AttendanceBranchSchedule = {
   workDays: number[];
 };
 
-export type AttendanceCalendarKind = "holiday" | "day_off" | "leave" | "short_day";
+export type AttendanceCalendarKind = "present" | "late" | "absent" | "holiday" | "day_off" | "leave" | "short_day" | "delivery";
 
 export type AttendanceCalendarEntry = {
   id: string;
@@ -104,6 +105,20 @@ export type AttendanceCalendarEntry = {
   createdBy: string;
 };
 
+export type EmployeePayment = {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  paymentType: "advance" | "salary";
+  amount: number;
+  paymentDate: string;
+  paymentMethod: string;
+  comment: string;
+  status: "paid" | "cancelled";
+  createdBy: string;
+  createdAt: string;
+};
+
 export type AttendanceReport = {
   rows: AttendanceRecord[];
   events: AttendanceEvent[];
@@ -111,6 +126,7 @@ export type AttendanceReport = {
   users: AttendanceUser[];
   managementUsers: AttendanceUser[];
   calendar: AttendanceCalendarEntry[];
+  payments: EmployeePayment[];
   totals: {
     records: number;
     open: number;
@@ -185,6 +201,7 @@ function normalizeUser(value: unknown): AttendanceUser {
     login: asString(record.login),
     role: asRole(record.role),
     branches: asArray(record.branches).map(String),
+    permissions: asArray(record.permissions).map(String),
   };
 }
 
@@ -243,7 +260,7 @@ function normalizeEvent(value: unknown): AttendanceEvent {
 
 function normalizeCalendarEntry(value: unknown): AttendanceCalendarEntry {
   const record = asRecord(value);
-  const kinds: AttendanceCalendarKind[] = ["holiday", "day_off", "leave", "short_day"];
+  const kinds: AttendanceCalendarKind[] = ["present", "late", "absent", "holiday", "day_off", "leave", "short_day", "delivery"];
   const kind = kinds.includes(record.kind as AttendanceCalendarKind) ? record.kind as AttendanceCalendarKind : "day_off";
   return {
     id: asString(record.id),
@@ -256,6 +273,23 @@ function normalizeCalendarEntry(value: unknown): AttendanceCalendarEntry {
     workEndsAt: asString(record.workEndsAt),
     createdAt: asString(record.createdAt),
     createdBy: asString(record.createdBy),
+  };
+}
+
+function normalizeEmployeePayment(value: unknown): EmployeePayment {
+  const record = asRecord(value);
+  return {
+    id: asString(record.id),
+    employeeId: asString(record.employeeId),
+    employeeName: asString(record.employeeName),
+    paymentType: record.paymentType === "salary" ? "salary" : "advance",
+    amount: asNumber(record.amount),
+    paymentDate: asString(record.paymentDate),
+    paymentMethod: asString(record.paymentMethod),
+    comment: asString(record.comment),
+    status: record.status === "cancelled" ? "cancelled" : "paid",
+    createdBy: asString(record.createdBy),
+    createdAt: asString(record.createdAt),
   };
 }
 
@@ -381,6 +415,7 @@ export async function getAttendanceReport(params: {
     users: asArray(payload.users).map(normalizeUser),
     managementUsers: asArray(payload.managementUsers).map(normalizeUser),
     calendar: asArray(payload.calendar).map(normalizeCalendarEntry),
+    payments: asArray(payload.payments).map(normalizeEmployeePayment),
     totals: {
       records: asNumber(totals.records),
       open: asNumber(totals.open),
@@ -403,6 +438,20 @@ export async function getAttendanceReport(params: {
       }),
     },
   };
+}
+
+export async function createAttendanceAdvance(input: {
+  employeeId: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: string;
+  comment: string;
+}) {
+  const payload = asRecord(await apiClient<unknown>("/api/attendance/payments", {
+    method: "POST",
+    body: input,
+  }));
+  return normalizeEmployeePayment(payload.payment);
 }
 
 export async function saveAttendanceSchedule(payload: AttendanceSchedulePayload) {
@@ -437,6 +486,7 @@ export async function createAttendanceCalendarEntry(input: {
   storeId: string;
   title: string;
   workEndsAt: string;
+  scope?: "employee" | "all";
 }) {
   const payload = asRecord(await apiClient<unknown>("/api/attendance/calendar", { method: "POST", body: input }));
   return normalizeCalendarEntry(payload.entry);

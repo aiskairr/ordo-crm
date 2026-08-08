@@ -40,6 +40,18 @@ import {
   listSupabaseAttendanceRecords,
   updateSupabaseAttendanceTelegramResult,
 } from "../_lib/attendance-records";
+import {
+  AttendanceCalendarStorageError,
+  deleteSupabaseAttendanceCalendarEntry,
+  listSupabaseAttendanceCalendarEntries,
+  replaceSupabaseAttendanceCalendarEntry,
+} from "../_lib/attendance-calendar";
+import { ATTENDANCE_AUTO_PERMISSION, ATTENDANCE_BRANCH_VIEW_PERMISSION } from "@/src/fsd/entities/user";
+import {
+  createEmployeePayment,
+  EmployeePaymentsStorageError,
+  listEmployeePayments,
+} from "../_lib/employee-payments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -148,7 +160,7 @@ type AttendanceSchedule = {
   branches: AttendanceBranchSchedule[];
 };
 
-type AttendanceCalendarKind = "holiday" | "day_off" | "leave" | "short_day";
+type AttendanceCalendarKind = "present" | "late" | "absent" | "holiday" | "day_off" | "leave" | "short_day" | "delivery";
 
 type AttendanceCalendarEntry = {
   id: string;
@@ -455,7 +467,7 @@ function normalizeAttendanceWorkDays(value: unknown) {
 
 function normalizeAttendanceCalendar(value: unknown): AttendanceCalendarEntry[] {
   if (!Array.isArray(value)) return [];
-  const kinds: AttendanceCalendarKind[] = ["holiday", "day_off", "leave", "short_day"];
+  const kinds: AttendanceCalendarKind[] = ["present", "late", "absent", "holiday", "day_off", "leave", "short_day", "delivery"];
   return value.map(asRecord).map((entry) => {
     const kind = kinds.includes(entry.kind as AttendanceCalendarKind) ? entry.kind as AttendanceCalendarKind : "day_off";
     const dateFrom = asString(entry.dateFrom || entry.date).slice(0, 10);
@@ -792,9 +804,20 @@ function normalizeLoginValue(value: unknown) {
 
 function normalizeCrmPermissions(role: unknown, value: unknown) {
   const roleName = isCrmRole(role) ? role : "employee";
-  if (roleName === "admin" || roleName === "owner") return [...permissions];
+  const requested = Array.isArray(value) ? value.map(String) : [];
+  const automaticAttendance = requested.includes(ATTENDANCE_AUTO_PERMISSION);
+  const branchAttendanceView = requested.includes(ATTENDANCE_BRANCH_VIEW_PERMISSION);
+  if (roleName === "admin" || roleName === "owner") {
+    return [
+      ...permissions,
+      ...(automaticAttendance ? [ATTENDANCE_AUTO_PERMISSION] : []),
+      ...(branchAttendanceView ? [ATTENDANCE_BRANCH_VIEW_PERMISSION] : []),
+    ];
+  }
   const source = Array.isArray(value) && value.length ? value.map(String) : rolePermissions[roleName];
   const filtered = [...new Set(source.filter((permission) => permissions.includes(permission)))];
+  if (automaticAttendance) filtered.push(ATTENDANCE_AUTO_PERMISSION);
+  if (branchAttendanceView) filtered.push(ATTENDANCE_BRANCH_VIEW_PERMISSION);
   if (!reportProfitRoles.has(roleName)) {
     return filtered.filter((permission) => permission !== "reportProfit" && permission !== "editDocumentPrices");
   }
@@ -963,8 +986,12 @@ function canActorGrantReportProfit(actor: CrmUser, targetRole: CrmRole) {
 
 function applyManagedUserPermissionRules(actor: CrmUser, targetRole: CrmRole, requestedPermissions: unknown, currentPermissions: string[] = []) {
   let normalized = normalizeCrmPermissions(targetRole, requestedPermissions);
+  if (actor.role !== "admin") {
+    normalized = normalized.filter((permission) => permission !== ATTENDANCE_AUTO_PERMISSION);
+    if (currentPermissions.includes(ATTENDANCE_AUTO_PERMISSION)) normalized.push(ATTENDANCE_AUTO_PERMISSION);
+  }
   if (targetRole === "admin" || targetRole === "owner") {
-    return [...permissions];
+    return normalized;
   }
   if (!canActorGrantReportProfit(actor, targetRole)) {
     normalized = normalized.filter((permission) => permission !== "reportProfit");
@@ -5327,7 +5354,7 @@ function attendanceCalendarEntryApplies(entry: AttendanceCalendarEntry, date: st
 }
 
 function findAttendanceCalendarEntry(data: AppData, date: string, userId: string, store?: AttendanceStore | null) {
-  const priority: Record<AttendanceCalendarKind, number> = { leave: 4, holiday: 3, day_off: 2, short_day: 1 };
+  const priority: Record<AttendanceCalendarKind, number> = { present: 7, late: 7, absent: 7, delivery: 7, leave: 6, holiday: 5, day_off: 4, short_day: 3 };
   return data.attendanceCalendar
     .filter((entry) => attendanceCalendarEntryApplies(entry, date, userId, store))
     .sort((left, right) => priority[right.kind] - priority[left.kind])[0] || null;
@@ -5353,13 +5380,22 @@ function getAttendanceLateMinutes(record: AttendanceRecord, data: AppData, store
   return Math.max(0, Math.round((checkIn.getTime() - startAt.getTime()) / 60000));
 }
 
-function getAttendanceAutoCloseTime(record: AttendanceRecord, data: AppData, store?: AttendanceStore | null) {
-  const attendanceDate = getBishkekAttendanceDate(record.checkInTime);
-  const calendarEntry = findAttendanceCalendarEntry(data, attendanceDate, record.userId, store);
+function getAttendanceScheduledEndTime(
+  data: AppData,
+  userId: string,
+  source: string,
+  store?: AttendanceStore | null,
+) {
+  const attendanceDate = getBishkekAttendanceDate(source);
+  const calendarEntry = findAttendanceCalendarEntry(data, attendanceDate, userId, store);
   const workEndsAt = calendarEntry?.kind === "short_day" && calendarEntry.workEndsAt
     ? calendarEntry.workEndsAt
     : getAttendanceStoreSchedule(data.attendanceSchedule, store).workEndsAt;
-  const scheduledEnd = combineAttendanceDateTime(record.checkInTime, workEndsAt);
+  return combineAttendanceDateTime(source, workEndsAt);
+}
+
+function getAttendanceAutoCloseTime(record: AttendanceRecord, data: AppData, store?: AttendanceStore | null) {
+  const scheduledEnd = getAttendanceScheduledEndTime(data, record.userId, record.checkInTime, store);
   const checkIn = new Date(record.checkInTime);
   const maximumShiftEnd = new Date(checkIn.getTime() + 16 * 60 * 60 * 1000);
   if (scheduledEnd.getTime() <= checkIn.getTime()) return maximumShiftEnd;
@@ -5389,13 +5425,27 @@ async function autoCloseSupabaseAttendanceRecord(record: AttendanceRecord, data:
   const store = resolveAttendanceBranch(data, record.storeId);
   const endAt = getAttendanceAutoCloseTime(record, data, store);
   if (Date.now() < endAt.getTime()) return record;
-  const closed = await closeSupabaseAttendanceRecord({
-    id: record.id,
-    checkOutTime: endAt.toISOString(),
-    totalWorkMinutes: minutesBetween(record.checkInTime, endAt.toISOString()),
-    checkOutIp: "",
-  });
-  return closed satisfies AttendanceRecord;
+  const checkOutTime = endAt.toISOString();
+  const totalWorkMinutes = minutesBetween(record.checkInTime, checkOutTime);
+  try {
+    const closed = await closeSupabaseAttendanceRecord({
+      id: record.id,
+      checkOutTime,
+      totalWorkMinutes,
+      checkOutIp: "",
+    });
+    return closed satisfies AttendanceRecord;
+  } catch (caught) {
+    if (!(caught instanceof AttendanceRecordsStorageError) || caught.status !== 409) throw caught;
+    return {
+      ...record,
+      status: "closed" as const,
+      checkOutTime,
+      totalWorkMinutes,
+      currentWorkMinutes: totalWorkMinutes,
+      checkOutDistanceMeters: 0,
+    };
+  }
 }
 
 function getDefaultAttendanceBranches(schedule: AttendanceSchedule): AttendanceStore[] {
@@ -5453,19 +5503,23 @@ function resolveAttendanceUserStore(data: AppData, user: Pick<CrmUser, "branches
 function getAttendanceDayStatus(data: AppData, user: Pick<CrmUser, "id" | "branches">, date = getBishkekAttendanceDate()) {
   const store = resolveAttendanceUserStore(data, user);
   const entry = findAttendanceCalendarEntry(data, date, user.id, store);
-  const codes: Record<AttendanceCalendarKind, string> = { holiday: "П", day_off: "В", leave: "ОТ", short_day: "СД" };
+  const codes: Record<AttendanceCalendarKind, string> = { present: "Я", late: "ОП", absent: "Н", holiday: "П", day_off: "В", leave: "ОТ", short_day: "СД", delivery: "Д" };
   const labels: Record<AttendanceCalendarKind, string> = {
+    present: "Явка подтверждена",
+    late: "Опоздание",
+    absent: "Отсутствие без причины",
     holiday: "Государственный праздник",
     day_off: "Выходной",
     leave: "Согласованный отгул",
     short_day: "Сокращённый день",
+    delivery: "Вышел на доставку",
   };
   if (entry) {
     return {
       code: codes[entry.kind],
       kind: entry.kind,
       label: entry.title || labels[entry.kind],
-      workingDay: entry.kind === "short_day",
+      workingDay: entry.kind === "short_day" || entry.kind === "present" || entry.kind === "late" || entry.kind === "delivery",
       workEndsAt: entry.workEndsAt,
     };
   }
@@ -5567,6 +5621,96 @@ function isAttendanceParticipant(user: Pick<CrmUser, "role">) {
   return ["manager", "seller", "logistics", "accountant", "employee"].includes(user.role);
 }
 
+function canManageEmployeePayments(user: Pick<CrmUser, "role">) {
+  return ["manager", "admin", "owner"].includes(user.role);
+}
+
+function canViewBranchAttendance(user: Pick<CrmUser, "permissions">) {
+  return user.permissions.includes(ATTENDANCE_BRANCH_VIEW_PERMISSION);
+}
+
+function attendanceUsersInViewerBranches<T extends Pick<CrmUser, "id" | "branches">>(
+  viewer: Pick<CrmUser, "id" | "branches">,
+  users: T[],
+) {
+  const viewerBranches = getUserSalesBranches(viewer);
+  return users.filter((candidate) => {
+    if (candidate.id === viewer.id) return true;
+    const candidateBranches = getUserSalesBranches(candidate);
+    return [...candidateBranches].some((branch) => viewerBranches.has(branch));
+  });
+}
+
+function usesAutomaticAttendance(user: Pick<CrmUser, "permissions">) {
+  return user.permissions.includes(ATTENDANCE_AUTO_PERMISSION);
+}
+
+async function ensureAutomaticAttendanceRecord(data: AppData, user: CrmUser, useSupabaseRecords: boolean) {
+  if (!isAttendanceParticipant(user) || !usesAutomaticAttendance(user)) return null;
+  const now = new Date();
+  const attendanceDate = getBishkekAttendanceDate(now);
+  const store = resolveAttendanceUserStore(data, user);
+  if (!store || !getAttendanceDayStatus(data, user, attendanceDate).workingDay) return null;
+
+  const schedule = getAttendanceStoreSchedule(data.attendanceSchedule, store);
+  const scheduledStart = combineAttendanceDateTime(attendanceDate, schedule.workStartsAt);
+  const scheduledEnd = getAttendanceScheduledEndTime(data, user.id, scheduledStart.toISOString(), store);
+  if (now.getTime() < scheduledStart.getTime()) return null;
+
+  const existingRows = useSupabaseRecords
+    ? await listSupabaseAttendanceRecords({ dateFrom: attendanceDate, dateTo: attendanceDate, userId: user.id })
+    : data.attendanceRecords.filter((record) => record.userId === user.id && getBishkekAttendanceDate(record.checkInTime) === attendanceDate);
+  if (existingRows.length) {
+    const open = existingRows.find((record) => record.status === "open");
+    return open && useSupabaseRecords ? autoCloseSupabaseAttendanceRecord(open, data) : open || existingRows[0];
+  }
+
+  const record: AttendanceRecord = {
+    id: randomUUID(),
+    userId: user.id,
+    userName: user.name,
+    storeId: store.id,
+    storeName: store.name,
+    checkInTime: scheduledStart.toISOString(),
+    checkOutTime: "",
+    checkInDistanceMeters: 0,
+    checkOutDistanceMeters: null,
+    totalWorkMinutes: 0,
+    currentWorkMinutes: 0,
+    lateMinutes: 0,
+    status: "open",
+    source: "admin",
+  };
+
+  let storedRecord = record;
+  if (useSupabaseRecords) {
+    try {
+      storedRecord = await createSupabaseAttendanceRecord(record, "");
+    } catch (caught) {
+      if (!(caught instanceof AttendanceRecordsStorageError) || caught.status !== 409) throw caught;
+      storedRecord = await getOpenSupabaseAttendanceRecord(user.id) || record;
+    }
+  } else {
+    data.attendanceRecords.unshift(record);
+  }
+
+  if (now.getTime() >= scheduledEnd.getTime() && storedRecord.status === "open") {
+    const checkOutTime = scheduledEnd.toISOString();
+    const totalWorkMinutes = minutesBetween(storedRecord.checkInTime, checkOutTime);
+    if (useSupabaseRecords) {
+      storedRecord = await closeSupabaseAttendanceRecord({ id: storedRecord.id, checkOutTime, totalWorkMinutes, checkOutIp: "" });
+    } else {
+      storedRecord.status = "closed";
+      storedRecord.checkOutTime = checkOutTime;
+      storedRecord.totalWorkMinutes = totalWorkMinutes;
+      storedRecord.currentWorkMinutes = totalWorkMinutes;
+      storedRecord.checkOutDistanceMeters = 0;
+    }
+  }
+  if (!useSupabaseRecords) await writeData(data);
+  return storedRecord;
+}
+
 function maskAttendanceIp(ip: string) {
   const ipv4 = ip.split(".");
   if (ipv4.length === 4) return `${ipv4[0]}.${ipv4[1]}.${ipv4[2]}.*`;
@@ -5603,7 +5747,7 @@ async function getAttendanceNetworkAccess(request: NextRequest, user: CrmUser, d
       branchKey: null,
       branchName: "",
       store: null,
-      message: "Подключитесь к Wi‑Fi своего филиала и проверьте сеть повторно.",
+      message: "Отключите VPN, подключитесь к Wi‑Fi своего филиала и проверьте сеть повторно.",
     };
   }
 
@@ -6650,11 +6794,17 @@ async function fetchMoySkladImageAsDataUrl(
   source: JsonRecord,
   optimization?: MoySkladImageOptimization,
 ) {
-  const candidates = [
+  const originalCandidates = [
     asString(source.downloadHref),
     asString(asRecord(source.meta).downloadHref),
+  ];
+  const miniatureCandidates = [
     asString(asRecord(source.miniature).downloadHref),
     asString(asRecord(asRecord(source.miniature).meta).downloadHref),
+  ];
+  const candidates = [
+    ...originalCandidates,
+    ...miniatureCandidates,
   ].filter(Boolean);
 
   for (const url of candidates) {
@@ -6679,7 +6829,8 @@ async function fetchMoySkladImageAsDataUrl(
           .toBuffer();
         return `data:image/webp;base64,${optimized.toString("base64")}`;
       } catch (caught) {
-        console.warn("MoySklad catalog image optimization failed; using the source image.", caught);
+        console.warn("MoySklad catalog image optimization failed; trying the next image source.", caught);
+        continue;
       }
     }
 
@@ -6748,7 +6899,7 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
     return { href, fallback: item };
   });
 
-  return mapWithConcurrency(items, 2, async ({ href, fallback }) => {
+  return mapWithConcurrency(items, 1, async ({ href, fallback }) => {
     const detailUrl = new URL(href);
     detailUrl.searchParams.set("expand", "productFolder,images");
     const response = await moyskladFetch(detailUrl.toString(), {
@@ -6767,8 +6918,8 @@ async function getProductCatalogProducts(payload: JsonRecord): Promise<ProductCa
       imageRows,
       1,
       (image) => fetchMoySkladImageAsDataUrl(token, asRecord(image), {
-        maxDimension: 1000,
-        quality: 78,
+        maxDimension: 800,
+        quality: 74,
       }),
     )).filter(Boolean);
     const characteristics = Array.isArray(product.attributes)
@@ -7591,14 +7742,25 @@ async function handleExpenses(request: NextRequest, parts: string[], data: AppDa
 
 async function handleAttendance(request: NextRequest, parts: string[], data: AppData) {
   const user = await requireFreshUser(request, data);
+  if (isSupabaseCrmEnabled()) {
+    try {
+      data.attendanceCalendar = await listSupabaseAttendanceCalendarEntries();
+    } catch (caught) {
+      console.error("Supabase attendance calendar fallback is used:", caught instanceof Error ? caught.message : caught);
+    }
+  }
   const useSupabaseRecords = canUseSupabaseAttendanceRecords(user.id);
   if (!useSupabaseRecords && autoCloseAttendanceRecords(data)) {
     await writeData(data);
   }
   if (parts[1] === "status" && request.method === "GET") {
-    const storedOpenRecord = useSupabaseRecords
+    let storedOpenRecord = useSupabaseRecords
       ? await getOpenSupabaseAttendanceRecord(user.id)
       : data.attendanceRecords.find((record) => record.userId === user.id && record.status === "open") || null;
+    if (!storedOpenRecord && usesAutomaticAttendance(user)) {
+      const automaticRecord = await ensureAutomaticAttendanceRecord(data, user, useSupabaseRecords);
+      storedOpenRecord = automaticRecord?.status === "open" ? automaticRecord : null;
+    }
     const openRecord = storedOpenRecord && useSupabaseRecords
       ? await autoCloseSupabaseAttendanceRecord(storedOpenRecord, data)
       : storedOpenRecord;
@@ -7622,6 +7784,35 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
       return json({ settings: await saveAttendanceNetworkSettings(await body(request)) });
     }
   }
+  if (parts[1] === "payments" && request.method === "POST") {
+    if (!canManageEmployeePayments(user)) return error(403, "Выдавать аванс может менеджер, владелец или главный администратор");
+    if (!isSupabaseCrmEnabled()) return error(503, "Для авансов настройте Supabase");
+    const payload = await body(request);
+    const employeeId = asString(payload.employeeId);
+    const amount = Math.round(asNumber(payload.amount) * 100) / 100;
+    const paymentDate = asString(payload.paymentDate).slice(0, 10);
+    const paymentMethod = asString(payload.paymentMethod, "Наличные").trim().slice(0, 80) || "Наличные";
+    const comment = asString(payload.comment).trim().slice(0, 500);
+    if (!isUuid(employeeId)) return error(400, "Выберите сотрудника");
+    if (!(amount > 0) || amount > 10_000_000) return error(400, "Укажите корректную сумму аванса");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) return error(400, "Укажите дату выдачи аванса");
+    const employee = (await getManagedCrmUsers(data)).find((candidate) => candidate.id === employeeId && candidate.active && isAttendanceParticipant(candidate));
+    if (!employee) return error(404, "Сотрудник не найден или неактивен");
+    if (user.role === "manager" && !attendanceUsersInViewerBranches(user, [employee]).length) {
+      return error(403, "Менеджер может выдавать аванс только сотрудникам своих филиалов");
+    }
+    const payment = await createEmployeePayment({
+      employeeId: employee.id,
+      employeeName: employee.name,
+      paymentType: "advance",
+      amount,
+      paymentDate,
+      paymentMethod,
+      comment,
+      createdBy: user.name,
+    });
+    return json({ payment }, 201);
+  }
   if (parts[1] === "network-status" && request.method === "GET") {
     const access = await getAttendanceNetworkAccess(request, user, data);
     const response = json({
@@ -7637,10 +7828,10 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
     return response;
   }
   if (parts[1] === "calendar") {
-    if (user.role !== "admin") return error(403, "Управлять календарём может только главный администратор");
+    if (user.role !== "admin" && user.role !== "owner") return error(403, "Управлять отметками могут только владелец и главный администратор");
     if (request.method === "POST") {
       const payload = await body(request);
-      const kinds: AttendanceCalendarKind[] = ["holiday", "day_off", "leave", "short_day"];
+      const kinds: AttendanceCalendarKind[] = ["present", "late", "absent", "holiday", "day_off", "leave", "short_day", "delivery"];
       const kind = kinds.includes(payload.kind as AttendanceCalendarKind) ? payload.kind as AttendanceCalendarKind : null;
       const dateFrom = asString(payload.dateFrom).slice(0, 10);
       const dateTo = asString(payload.dateTo, dateFrom).slice(0, 10);
@@ -7651,52 +7842,78 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo) || dateFrom > dateTo) {
         return error(400, "Укажите корректный период");
       }
-      if (kind === "leave" && !userId) return error(400, "Для отгула выберите сотрудника");
+      if (["present", "late", "absent", "leave", "delivery"].includes(kind) && !userId && asString(payload.scope) !== "all") {
+        return error(400, "Для персональной отметки выберите сотрудника");
+      }
       if (kind === "short_day" && !/^\d{2}:\d{2}$/.test(workEndsAt)) return error(400, "Укажите время окончания сокращённого дня");
       const entry: AttendanceCalendarEntry = {
         id: randomUUID(),
         kind,
         dateFrom,
         dateTo,
-        userId: kind === "leave" ? userId : "",
-        storeId: kind === "leave" ? "" : storeId,
+        userId,
+        storeId: userId ? "" : storeId,
         title: asString(payload.title).trim(),
         workEndsAt: kind === "short_day" ? workEndsAt : "",
         createdAt: new Date().toISOString(),
         createdBy: user.name,
       };
-      data.attendanceCalendar.unshift(entry);
-      await writeData(data);
-      return json({ entry }, 201);
+      data.attendanceCalendar = data.attendanceCalendar.filter((current) => !(
+        current.dateFrom === entry.dateFrom
+          && current.dateTo === entry.dateTo
+          && current.userId === entry.userId
+          && current.storeId === entry.storeId
+      ));
+      const storedEntry = isSupabaseCrmEnabled()
+        ? await replaceSupabaseAttendanceCalendarEntry(entry)
+        : entry;
+      data.attendanceCalendar.unshift(storedEntry);
+      if (!isSupabaseCrmEnabled()) await writeData(data);
+      return json({ entry: storedEntry }, 201);
     }
     if (parts[2] && request.method === "DELETE") {
       const index = data.attendanceCalendar.findIndex((entry) => entry.id === parts[2]);
       if (index < 0) return error(404, "Запись календаря не найдена");
+      if (isSupabaseCrmEnabled()) await deleteSupabaseAttendanceCalendarEntry(parts[2]);
       data.attendanceCalendar.splice(index, 1);
-      await writeData(data);
+      if (!isSupabaseCrmEnabled()) await writeData(data);
       return json({ ok: true });
     }
   }
   if (parts[1] === "reports" && request.method === "GET") {
     const managedUsers = uniqueManagedUsers(await getManagedCrmUsers(data));
     const attendanceUsers = managedUsers.filter(isAttendanceParticipant);
-    const attendanceUserIds = new Set(attendanceUsers.map((item) => item.id));
     const attendanceBranches = getAttendanceBranches(data);
-    const canViewAllAttendance = user.role === "owner";
+    const canViewAllAttendance = user.role === "owner" || user.role === "admin";
+    const canViewOwnBranches = !canViewAllAttendance && canViewBranchAttendance(user);
+    const branchAttendanceUsers = attendanceUsersInViewerBranches(user, attendanceUsers);
+    const visibleAttendanceUsers = canViewAllAttendance
+      ? attendanceUsers
+      : canViewOwnBranches
+        ? branchAttendanceUsers
+        : attendanceUsers.filter((item) => item.id === user.id);
+    const visibleAttendanceUserIds = new Set(visibleAttendanceUsers.map((item) => item.id));
+    const paymentManagementUsers = canViewAllAttendance ? attendanceUsers : branchAttendanceUsers;
     const url = new URL(request.url);
     const dateFrom = url.searchParams.get("date_from") || url.searchParams.get("dateFrom") || "";
     const dateTo = url.searchParams.get("date_to") || url.searchParams.get("dateTo") || "";
     const requestedUserId = url.searchParams.get("user_id") || url.searchParams.get("userId") || "";
-    const userId = canViewAllAttendance ? requestedUserId : user.id;
+    if (requestedUserId && !visibleAttendanceUserIds.has(requestedUserId)) {
+      return error(403, "Нет доступа к табелю выбранного сотрудника");
+    }
+    const userId = canViewAllAttendance || canViewOwnBranches ? requestedUserId : user.id;
     const storeId = url.searchParams.get("store_id") || url.searchParams.get("storeId") || "";
     const useSupabaseReport = isSupabaseCrmEnabled() && (canViewAllAttendance || isUuid(user.id));
-    const storedRows = useSupabaseReport
+    const loadedRows = useSupabaseReport
       ? await listSupabaseAttendanceRecords({ dateFrom, dateTo, userId, storeId })
       : data.attendanceRecords;
+    const storedRows = useSupabaseReport
+      ? await Promise.all(loadedRows.map((record) => autoCloseSupabaseAttendanceRecord(record, data)))
+      : loadedRows;
     const rows = storedRows
       .map(currentAttendanceRecord)
       .filter((row) => {
-        if (!attendanceUserIds.has(row.userId)) return false;
+        if (!visibleAttendanceUserIds.has(row.userId)) return false;
         if (userId && row.userId !== userId) return false;
         if (storeId && row.storeId !== storeId) return false;
         const rowDate = getBishkekAttendanceDate(row.checkInTime);
@@ -7704,22 +7921,38 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
         if (dateTo && rowDate > dateTo) return false;
         return true;
       });
-    const calendarUserId = canViewAllAttendance ? requestedUserId : user.role === "admin" ? "" : user.id;
+    const viewerBranches = getUserSalesBranches(user);
     const calendar = data.attendanceCalendar.filter((entry) => {
       if (dateFrom && entry.dateTo < dateFrom) return false;
       if (dateTo && entry.dateFrom > dateTo) return false;
-      if (!canViewAllAttendance && user.role !== "admin" && entry.userId && entry.userId !== user.id) return false;
-      if (calendarUserId && entry.userId && entry.userId !== calendarUserId) return false;
+      if (entry.userId && !visibleAttendanceUserIds.has(entry.userId)) return false;
+      if (requestedUserId && entry.userId && entry.userId !== requestedUserId) return false;
+      if (canViewOwnBranches && entry.storeId) {
+        const entryBranch = canonicalSalesBranch(entry.storeId);
+        if (entryBranch && !viewerBranches.has(entryBranch)) return false;
+      }
       if (storeId && entry.storeId && slugifyAttendanceBranch(entry.storeId) !== slugifyAttendanceBranch(storeId)) return false;
       return true;
     });
+    const loadedPayments = isSupabaseCrmEnabled()
+      ? await listEmployeePayments({
+          dateFrom,
+          dateTo,
+          employeeId: canViewAllAttendance || canViewOwnBranches ? requestedUserId : user.id,
+        }).catch((caught) => {
+          console.error("Employee payments are unavailable:", caught instanceof Error ? caught.message : caught);
+          return [];
+        })
+      : [];
+    const payments = loadedPayments.filter((payment) => visibleAttendanceUserIds.has(payment.employeeId));
     return json({
       rows,
       calendar,
+      payments,
       events: [],
       stores: attendanceBranches,
-      users: canViewAllAttendance ? attendanceUsers : attendanceUsers.filter((item) => item.id === user.id),
-      managementUsers: user.role === "admin" ? attendanceUsers : [],
+      users: visibleAttendanceUsers,
+      managementUsers: canManageEmployeePayments(user) ? paymentManagementUsers : [],
       totals: {
         records: rows.length,
         open: rows.filter((row) => row.status === "open").length,
@@ -7732,8 +7965,9 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
   }
   if (parts[1] === "open" && request.method === "POST") {
     const payload = await body(request);
-    const selfie = validateAttendanceSelfie(payload.selfie);
     if (!isAttendanceParticipant(user)) return error(403, "Эта роль не участвует в табеле посещаемости");
+    if (usesAutomaticAttendance(user)) return error(409, "Для сотрудника включено автоматическое открытие смены по графику.");
+    const selfie = validateAttendanceSelfie(payload.selfie);
     const existingOpen = useSupabaseRecords
       ? await getOpenSupabaseAttendanceRecord(user.id)
       : data.attendanceRecords.find((item) => item.userId === user.id && item.status === "open");
@@ -7754,6 +7988,18 @@ async function handleAttendance(request: NextRequest, parts: string[], data: App
     }
     const store = networkAccess.store;
     if (!store) return error(400, "Не найден филиал для отметки");
+    const now = new Date();
+    const attendanceDate = getBishkekAttendanceDate(now);
+    const calendarEntry = findAttendanceCalendarEntry(data, attendanceDate, user.id, store);
+    if (calendarEntry && ["holiday", "day_off", "leave"].includes(calendarEntry.kind)) {
+      return error(409, `${calendarEntry.title || "Сегодня нерабочий день"}. Открывать смену не требуется.`);
+    }
+    if (!isAttendanceScheduledWorkday(data, attendanceDate, store)) {
+      return error(409, "Сегодня выходной по графику. Открывать смену не требуется.");
+    }
+    if (now.getTime() >= getAttendanceScheduledEndTime(data, user.id, now.toISOString(), store).getTime()) {
+      return error(409, "Рабочий день по графику уже завершён. Повторно открыть смену сегодня нельзя.");
+    }
     const record: AttendanceRecord = {
       id: randomUUID(),
       userId: user.id,
@@ -8355,6 +8601,8 @@ async function handle(request: NextRequest, context: { params: Promise<{ path?: 
   } catch (caught) {
     if (caught instanceof Response) return error(caught.status, await caught.text());
     if (caught instanceof AttendanceRecordsStorageError) return error(caught.status, caught.message);
+    if (caught instanceof AttendanceCalendarStorageError) return error(caught.status, caught.message);
+    if (caught instanceof EmployeePaymentsStorageError) return error(caught.status, caught.message);
     return error(500, caught instanceof Error ? caught.message : "Internal server error");
   }
 

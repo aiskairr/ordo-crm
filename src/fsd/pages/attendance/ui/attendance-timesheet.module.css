@@ -209,6 +209,16 @@
 .todayHead { background: #e8f0ff !important; box-shadow: inset 0 3px 0 #2563eb; }
 .todayCell { background: #f5f8ff !important; }
 
+.editableHead,
+.editableCell {
+  cursor: pointer;
+}
+
+.editableHead:hover,
+.editableCell:hover {
+  box-shadow: inset 0 0 0 3px #5b82e8;
+}
+
 .dayCard {
   display: grid;
   min-height: 94px;
@@ -294,6 +304,16 @@
 
 .branch { color: #778196; font-size: 10px; font-weight: 700; }
 .lateLabel { color: #b96b05; font-size: 9px; font-weight: 900; }
+.advanceLabel {
+  border: 1px solid #e2b341;
+  border-radius: 7px;
+  background: #fff8dc;
+  color: #805600;
+  padding: 3px 5px;
+  font-size: 9px;
+  font-weight: 900;
+  text-align: center;
+}
 
 .workingCard {
   border-color: #55ba96;
@@ -333,18 +353,374 @@
 .absentDay strong { color: #be123c; }
 .empty { padding: 34px; color: #778196; text-align: center; font-weight: 800; }
 
+.editorBackdrop { position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; overflow-y: auto; background: rgba(10, 18, 38, 0.58); padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom)); backdrop-filter: blur(8px); }
+.editor { position: relative; width: min(560px, 100%); border: 2px solid #9eabc0; border-radius: 24px; background: #fff; padding: 26px; box-shadow: 0 28px 80px rgba(7, 18, 43, 0.3); }
+.editor > span { color: #2563eb; font-size: 11px; font-weight: 900; letter-spacing: 0.09em; text-transform: uppercase; }
+.editor h3 { margin: 7px 42px 0 0; color: #111a2d; font-size: 26px; }
+.editor > p { margin: 5px 0 18px; color: #68748a; font-weight: 800; }
+.editorClose { position: absolute; top: 18px; right: 18px; display: grid; width: 40px; height: 40px; place-items: center; border: 2px solid #c4ccda; border-radius: 12px; background: #fff; color: #26334b; cursor: pointer; }
+.markGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.markGrid button { display: flex; min-height: 62px; align-items: center; gap: 11px; border: 2px solid #bac5d7; border-radius: 15px; background: #f8faff; color: #24314a; padding: 10px 12px; text-align: left; cursor: pointer; }
+.markGrid button:hover, .markGrid .markSelected { border-color: #2563eb; background: #eaf1ff; box-shadow: inset 0 0 0 1px #2563eb; }
+.markGrid b { display: grid; min-width: 34px; height: 34px; place-items: center; border-radius: 10px; background: #173d9a; color: #fff; padding: 0 6px; font-size: 12px; }
+.markGrid span { font-size: 13px; font-weight: 850; }
+.shortDayField { display: grid; gap: 7px; margin-top: 14px; color: #59667d; font-size: 12px; font-weight: 850; }
+.shortDayField input { min-height: 48px; border: 2px solid #aeb9cb; border-radius: 12px; background: #fff; color: #16213a; padding: 0 13px; font: inherit; }
+.allWarning { display: block; margin-top: 14px; border: 1px solid #f3c16b; border-radius: 12px; background: #fff8e9; color: #945600; padding: 11px 13px; font-size: 12px; }
+.editorActions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.editorActions button { min-height: 46px; border-radius: 13px; padding: 0 18px; font-weight: 900; cursor: pointer; }
+.resetButton { border: 2px solid #f0a0aa; background: #fff3f4; color: #bd2035; }
+.saveButton { border: 2px solid #163f9f; background: #1d4ed8; color: #fff; }
+.editorActions button:disabled, .editorClose:disabled { cursor: wait; opacity: 0.6; }
+
+.printSheet {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .tableMeta { align-items: flex-start; flex-direction: column; }
   .legend { justify-content: flex-start; }
   .employeeColumn, .employeeCell { width: 210px; }
   .employeeCell { padding: 12px; }
   .avatar { width: 38px; height: 38px; border-radius: 12px; }
+  .editor { padding: 22px 16px 18px; }
+  .editor h3 { font-size: 21px; }
+  .markGrid { grid-template-columns: 1fr; }
+  .editorActions { flex-direction: column-reverse; }
+  .editorActions button { width: 100%; }
 }
 
 @media print {
-  .frame { border-radius: 0; box-shadow: none; }
-  .tableMeta { display: none; }
-  .scrollArea { overflow: visible; }
-  .table { min-width: 100% !important; }
-  .employeeColumn, .employeeCell { position: static; box-shadow: none; }
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  .printSheet,
+  .printSheet * {
+    visibility: visible !important;
+  }
+
+  .printSheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    width: 100%;
+    background: #fff;
+    color: #000;
+    font-family: Arial, Helvetica, sans-serif;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .printPage {
+    width: 100%;
+    min-height: 190mm;
+    border-top: 2.2mm solid #173f9f;
+    background:
+      radial-gradient(circle at 96% 2%, rgba(37, 99, 235, 0.12), transparent 34mm),
+      #fff;
+    padding-top: 5mm;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .printPage:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .printHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10mm;
+    margin-bottom: 3mm;
+    padding: 0 1mm;
+  }
+
+  .printBrand {
+    display: flex;
+    align-items: center;
+    gap: 3mm;
+  }
+
+  .printBrand > b {
+    display: grid;
+    width: 13mm;
+    height: 13mm;
+    place-items: center;
+    border-radius: 4mm;
+    background: linear-gradient(145deg, #102c73, #2864e8) !important;
+    color: #fff !important;
+    font-size: 17pt;
+    line-height: 1;
+  }
+
+  .printBrand > div {
+    display: grid;
+    gap: 0.5mm;
+  }
+
+  .printBrand > div > span {
+    color: #2056ca;
+    font-size: 7pt;
+    font-weight: 900;
+    letter-spacing: 0.13em;
+  }
+
+  .printHeader h1 {
+    margin: 0;
+    color: #111a2d;
+    font-size: 18pt;
+    line-height: 1.1;
+  }
+
+  .printHeader p {
+    margin: 0;
+    color: #536078;
+    font-size: 7pt;
+    font-weight: 600;
+  }
+
+  .printHeader aside {
+    display: grid;
+    flex: 0 0 auto;
+    gap: 1mm;
+    text-align: right;
+  }
+
+  .printHeader aside b,
+  .printHeader aside span {
+    font-size: 7.5pt;
+  }
+
+  .printHeader aside b {
+    border: 0.35mm solid #9eb3df;
+    border-radius: 2mm;
+    background: #eef4ff !important;
+    color: #173f9f;
+    padding: 1.5mm 2.5mm;
+  }
+
+  .printHeader aside span {
+    color: #626d82;
+  }
+
+  .printMeta {
+    display: grid;
+    grid-template-columns: 1.35fr 0.65fr 1fr;
+    gap: 2mm;
+    margin-bottom: 3mm;
+  }
+
+  .printMeta article {
+    display: grid;
+    gap: 0.7mm;
+    border: 0.35mm solid #aab8d0;
+    border-radius: 2.5mm;
+    background: #f6f8fc !important;
+    padding: 2mm 3mm;
+  }
+
+  .printMeta span {
+    color: #667188;
+    font-size: 6pt;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .printMeta b {
+    color: #111a2d;
+    font-size: 9pt;
+  }
+
+  .printTable {
+    width: 100%;
+    overflow: hidden;
+    border: 0.5mm solid #6c7890;
+    border-radius: 3mm;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 7.5pt;
+  }
+
+  .printTable th,
+  .printTable td {
+    border: 0.3mm solid #8996aa;
+    padding: 1.5mm 1mm;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .printTable thead {
+    display: table-header-group;
+  }
+
+  .printTable thead th {
+    background: #173f9f !important;
+    color: #fff !important;
+    font-size: 7pt;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .printTable thead th:first-child {
+    width: 7mm;
+  }
+
+  .printTable thead th:nth-child(2) {
+    width: 42mm;
+    text-align: left;
+  }
+
+  .printTable thead th:nth-last-child(2) {
+    width: 18mm;
+  }
+
+  .printTable thead th:last-child {
+    width: 31mm;
+  }
+
+  .printTable tbody tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .printAttendanceRow > th {
+    background: #f0f4fb !important;
+    text-align: left;
+    font-size: 8pt;
+  }
+
+  .printAttendanceRow > th small {
+    display: block;
+    margin-top: 0.8mm;
+    color: #444;
+    font-size: 6.5pt;
+    font-weight: 500;
+  }
+
+  .printEmployee {
+    display: flex;
+    align-items: center;
+    gap: 2mm;
+  }
+
+  .printEmployee > i {
+    display: grid;
+    width: 8mm;
+    height: 8mm;
+    flex: 0 0 8mm;
+    place-items: center;
+    border-radius: 2.2mm;
+    background: #dfe9ff !important;
+    color: #173f9f;
+    font-size: 6.5pt;
+    font-style: normal;
+    font-weight: 900;
+  }
+
+  .printEmployee > span {
+    min-width: 0;
+  }
+
+  .printAttendanceRow td {
+    min-height: 12mm;
+  }
+
+  .printAttendanceRow td > b,
+  .printAttendanceRow td > span,
+  .printAttendanceRow td > em {
+    display: block;
+  }
+
+  .printCode {
+    width: fit-content;
+    min-width: 7mm;
+    border: 0.3mm solid #9ab0dc;
+    border-radius: 1.8mm;
+    background: #e9f0ff !important;
+    color: #173f9f;
+    margin: 0 auto;
+    padding: 0.8mm 1.2mm;
+    font-size: 8pt;
+  }
+
+  .printAttendanceRow td > span {
+    margin-top: 0.8mm;
+    font-size: 6pt;
+    white-space: nowrap;
+  }
+
+  .printAttendanceRow td > em {
+    margin-top: 0.8mm;
+    font-size: 6pt;
+    font-style: normal;
+    font-weight: 800;
+  }
+
+  .printPaymentRow th {
+    background: #fff8df !important;
+    color: #725000;
+    text-align: left;
+    font-size: 6.5pt;
+  }
+
+  .printPaymentRow td {
+    height: 9mm;
+    background: #fffdf5 !important;
+    color: #555;
+    font-size: 6pt;
+  }
+
+  .printPaymentRow i,
+  .printPaymentTotal i {
+    display: block;
+    width: 90%;
+    height: 5mm;
+    border-bottom: 0.25mm solid #555;
+    margin: 0 auto;
+  }
+
+  .printPaymentRow td small {
+    display: block;
+    margin-top: 0.6mm;
+    color: #8a7a52;
+    font-size: 5.5pt;
+    text-align: right;
+  }
+
+  .printPaymentTotal {
+    background: #fff3c8 !important;
+    border-left: 0.6mm solid #d89d18 !important;
+  }
+
+  .printPaymentTotal i {
+    height: 10mm;
+    border-bottom-width: 0.4mm;
+  }
+
+  .printFooter {
+    display: grid;
+    gap: 4mm;
+    margin-top: 4mm;
+    border-top: 0.35mm solid #aab4c5;
+    padding-top: 3mm;
+    color: #4e596d;
+    font-size: 6.5pt;
+  }
+
+  .printFooter p {
+    margin: 0;
+  }
+
+  .printFooter div {
+    display: flex;
+    justify-content: space-between;
+    gap: 15mm;
+    padding-top: 3mm;
+  }
 }

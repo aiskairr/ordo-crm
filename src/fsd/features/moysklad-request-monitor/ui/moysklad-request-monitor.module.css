@@ -13,6 +13,20 @@
   backdrop-filter: blur(16px);
 }
 
+.monitor:not(.expanded) {
+  width: auto;
+  border-radius: 16px;
+}
+
+.monitor:not(.expanded) .header {
+  min-height: 52px;
+  padding: 8px;
+}
+
+.monitor:not(.expanded) .title {
+  display: none;
+}
+
 .header {
   display: flex;
   width: 100%;
@@ -144,14 +158,15 @@
 }
 
 @media (max-width: 640px), (max-height: 620px) {
-  .monitor { right: 10px; bottom: 10px; }
+  .monitor {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
   .expanded { max-height: min(310px, calc(100dvh - 20px)); overflow-y: auto; }
 }
 
 @media (max-width: 860px) {
-  .monitor {
-    display: none !important;
-  }
+  .monitor.expanded { width: min(330px, calc(100vw - 20px)); }
 }
 
 @media print {

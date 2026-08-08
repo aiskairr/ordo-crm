@@ -235,7 +235,9 @@
         "ayu"
       ],
       "permissions": [
-        "sales"
+        "sales",
+        "attendance",
+        "attendanceAutoSchedule"
       ],
       "active": true,
       "passwordHash": "",
@@ -263,7 +265,9 @@
     "244fa91e-9d80-417e-8349-76434a86bcf6": "8e18ae57-76cc-4412-b32e-538368f46a78",
     "bc5e1d9e-3fe6-4504-9ad8-70e9a32af9a0": "1492bffd-2ae5-46b0-a698-fc3130e9a048",
     "fd446a62-c126-494e-9616-e6d1dd79d94f": "5e697f28-61ba-47af-ad23-c31a90f10ea9",
-    "4580dc76-c9b8-4432-a2cc-47e17c438bac": "8cc96b0c-e1ff-41a0-a92b-39286c6da765"
+    "4580dc76-c9b8-4432-a2cc-47e17c438bac": "8cc96b0c-e1ff-41a0-a92b-39286c6da765",
+    "fa9ba208-1f20-471b-9d2c-257e49e800f8": "1492bffd-2ae5-46b0-a698-fc3130e9a048",
+    "64749d4e-7b8c-4376-91cf-f8d69402e249": "5e697f28-61ba-47af-ad23-c31a90f10ea9"
   },
   "uiSettings": {},
   "expenses": [],
@@ -384,7 +388,32 @@
       "source": "geo"
     }
   ],
-  "attendanceCalendar": [],
+  "attendanceCalendar": [
+    {
+      "id": "e0b919b8-da7e-4477-91e9-f931354bc40a",
+      "kind": "day_off",
+      "dateFrom": "2026-08-05",
+      "dateTo": "2026-08-05",
+      "userId": "",
+      "storeId": "",
+      "title": "Выходной",
+      "workEndsAt": "",
+      "createdAt": "2026-08-07T16:59:41.465Z",
+      "createdBy": "Кудайберди"
+    },
+    {
+      "id": "e151f038-1e5b-4f72-b077-990c6a9abc0d",
+      "kind": "absent",
+      "dateFrom": "2026-08-06",
+      "dateTo": "2026-08-06",
+      "userId": "5f87387c-cded-4412-8547-63c20e4dbc85",
+      "storeId": "",
+      "title": "Отсутствие без причины",
+      "workEndsAt": "",
+      "createdAt": "2026-08-07T16:58:56.983Z",
+      "createdBy": "Кудайберди"
+    }
+  ],
   "attendanceSchedule": {
     "workStartsAt": "09:00",
     "workEndsAt": "18:00",
@@ -393,7 +422,7 @@
         "key": "ayu-grand",
         "label": "Аю-Гранд",
         "workStartsAt": "09:00",
-        "workEndsAt": "18:00",
+        "workEndsAt": "00:00",
         "workDays": [
           1,
           2,

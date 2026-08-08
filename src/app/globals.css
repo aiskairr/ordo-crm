@@ -161,3 +161,19 @@ textarea:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
+@media print {
+  html,
+  body {
+    min-width: 0 !important;
+    background: #fff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .attendance-print-sheet,
+  .attendance-print-sheet * {
+    visibility: visible !important;
+  }
+}

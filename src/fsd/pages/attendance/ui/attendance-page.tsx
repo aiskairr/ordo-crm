@@ -1,12 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, Download, RefreshCw, Save, Trash2, Wifi, WifiOff } from "lucide-react";
+import { Banknote, Download, Printer, RefreshCw, Save, Wifi, WifiOff, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/src/fsd/widgets/app-shell";
 import { AttendanceSelfieButton } from "@/src/fsd/features/attendance-selfie";
 import { AuthRequired, StatusPanel } from "@/src/fsd/shared/ui/status";
 import { useToast } from "@/src/fsd/shared/ui/toast";
+import { ClearableNumberInput } from "@/src/fsd/shared/ui/clearable-number-input";
 import { getErrorText, isUnauthorizedError } from "@/src/fsd/shared/lib/errors";
 import {
   getAttendanceReport,
@@ -15,23 +16,27 @@ import {
   getAttendanceStatus,
   getCrmSession,
   closeAttendanceShift,
+  createAttendanceAdvance,
   createAttendanceCalendarEntry,
   deleteAttendanceCalendarEntry,
   openAttendanceShift,
   saveAttendanceNetworkSettings,
   saveAttendanceSchedule,
   type AttendanceBranchSchedule,
-  type AttendanceCalendarKind,
 } from "../api/attendance-api";
 import {
   canManageAttendance,
+  canViewAttendanceTeam,
   canViewReports,
   currentWeekIsoRange,
   exportAttendanceCsv,
   formatDateTime,
   formatDuration,
   formatNumber,
+  isAttendanceOpeningTime,
   isAttendanceRequiredForUser,
+  isAutomaticAttendanceUser,
+  todayIsoDate,
 } from "../model/attendance-model";
 import { AttendanceTimesheet } from "./attendance-timesheet";
 import styles from "./attendance-page.module.css";
@@ -49,13 +54,6 @@ function useWorkTimer(checkInTime?: string) {
   return Math.max(0, Math.floor((now - new Date(checkInTime).getTime()) / 60000));
 }
 
-function normalizedBranchForUi(value: string) {
-  const normalized = value.trim().toLocaleLowerCase("ru-RU").replace(/ё/g, "е").replace(/[^a-zа-я0-9]+/giu, "-");
-  if (normalized.includes("беш") || normalized.includes("besh")) return "besh";
-  if (normalized.includes("аю") || normalized.includes("ayu")) return "ayu";
-  return normalized;
-}
-
 export function AttendancePage() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -68,33 +66,28 @@ export function AttendancePage() {
   const [shiftActionError, setShiftActionError] = useState(false);
   const [networkSettingsDraft, setNetworkSettingsDraft] = useState<{ ayu: string; besh: string } | null>(null);
   const [scheduleDraft, setScheduleDraft] = useState<{ workStartsAt: string; workEndsAt: string; branches: AttendanceBranchSchedule[] } | null>(null);
-  const [calendarDraft, setCalendarDraft] = useState<{
-    kind: AttendanceCalendarKind;
-    dateFrom: string;
-    dateTo: string;
-    userId: string;
-    storeId: string;
-    title: string;
-    workEndsAt: string;
-  }>(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return { kind: "holiday", dateFrom: today, dateTo: today, userId: "", storeId: "", title: "", workEndsAt: "16:00" };
-  });
-
+  const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [advanceDraft, setAdvanceDraft] = useState({ employeeId: "", amount: 0, paymentDate: todayIsoDate(), paymentMethod: "Наличные", comment: "" });
   const sessionQuery = useQuery({ queryKey: ["crm-session"], queryFn: getCrmSession });
   const statusQuery = useQuery({ queryKey: ["attendance-status"], queryFn: getAttendanceStatus });
   const networkQuery = useQuery({
     queryKey: ["attendance-network-status"],
     queryFn: getAttendanceNetworkStatus,
-    enabled: Boolean(sessionQuery.data?.user && statusQuery.data?.dayStatus?.workingDay !== false),
+    enabled: Boolean(
+      sessionQuery.data?.user
+        && !isAutomaticAttendanceUser(sessionQuery.data.user)
+        && statusQuery.data?.dayStatus?.workingDay !== false
+        && statusQuery.data?.status !== "working"
+        && isAttendanceOpeningTime(statusQuery.data),
+    ),
     refetchOnWindowFocus: true,
     staleTime: 15_000,
   });
   const currentUser = sessionQuery.data?.user ?? null;
-  const ownerView = currentUser?.role === "owner";
+  const teamView = canViewAttendanceTeam(currentUser);
   const reportQuery = useQuery({
-    queryKey: ["attendance-report", currentUser?.id ?? "anonymous", dateFrom, dateTo, ownerView ? userId : "self", storeId],
-    queryFn: () => getAttendanceReport({ dateFrom, dateTo, userId: ownerView ? userId : "", storeId }),
+    queryKey: ["attendance-report", currentUser?.id ?? "anonymous", dateFrom, dateTo, teamView ? userId : "self", storeId],
+    queryFn: () => getAttendanceReport({ dateFrom, dateTo, userId: teamView ? userId : "", storeId }),
     enabled: Boolean(currentUser),
   });
 
@@ -102,7 +95,10 @@ export function AttendancePage() {
   const managerView = canViewReports(currentUser);
   const adminView = canManageAttendance(currentUser);
   const attendanceRequired = isAttendanceRequiredForUser(currentUser);
+  const automaticAttendance = isAutomaticAttendanceUser(currentUser);
   const attendanceDayOff = statusQuery.data?.dayStatus?.workingDay === false;
+  const attendanceOpeningTime = isAttendanceOpeningTime(statusQuery.data);
+  const canManageAdvances = currentUser ? ["manager", "admin", "owner"].includes(currentUser.role) : false;
   const networkSettingsQuery = useQuery({
     queryKey: ["attendance-network-settings"],
     queryFn: getAttendanceNetworkSettings,
@@ -124,16 +120,6 @@ export function AttendancePage() {
       return true;
     });
   }, [report?.users]);
-  const calendarUsers = useMemo(() => {
-    const source = adminView ? report?.managementUsers ?? [] : uniqueUsers;
-    const seen = new Set<string>();
-    return source.filter((employee) => {
-      const key = (employee.login || employee.name || employee.id).trim().toLocaleLowerCase("ru-RU");
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [adminView, report?.managementUsers, uniqueUsers]);
   const schedule = scheduleDraft ?? report?.schedule ?? { workStartsAt: "09:00", workEndsAt: "18:00", branches: [] };
   const branchOptions = useMemo(() => {
     if (schedule.branches.length) {
@@ -211,8 +197,7 @@ export function AttendancePage() {
   const calendarMutation = useMutation({
     mutationFn: createAttendanceCalendarEntry,
     onSuccess: async () => {
-      setCalendarDraft((current) => ({ ...current, title: "" }));
-      showToast({ tone: "success", title: "День добавлен в табель" });
+      showToast({ tone: "success", title: "Отметка сохранена" });
       await queryClient.invalidateQueries({ queryKey: ["attendance-report"] });
     },
     onError: (error) => showToast({ tone: "error", title: "Не удалось сохранить день", description: getErrorText(error) }),
@@ -221,21 +206,22 @@ export function AttendancePage() {
   const deleteCalendarMutation = useMutation({
     mutationFn: deleteAttendanceCalendarEntry,
     onSuccess: async () => {
-      showToast({ tone: "success", title: "Запись календаря удалена" });
+      showToast({ tone: "success", title: "Отметка сброшена" });
       await queryClient.invalidateQueries({ queryKey: ["attendance-report"] });
     },
     onError: (error) => showToast({ tone: "error", title: "Не удалось удалить запись", description: getErrorText(error) }),
   });
 
-  const totals = useMemo(
-    () => [
-      { label: "Записей", value: formatNumber(report?.totals.records ?? 0) },
-      { label: "На работе", value: formatNumber(report?.totals.open ?? 0) },
-      { label: "Отработано", value: formatDuration(report?.totals.totalWorkMinutes ?? 0) },
-      { label: "Опозданий", value: formatDuration(report?.totals.lateMinutes ?? 0) },
-    ],
-    [report],
-  );
+  const advanceMutation = useMutation({
+    mutationFn: createAttendanceAdvance,
+    onSuccess: async (payment) => {
+      setAdvanceOpen(false);
+      setAdvanceDraft({ employeeId: "", amount: 0, paymentDate: todayIsoDate(), paymentMethod: "Наличные", comment: "" });
+      showToast({ tone: "success", title: "Аванс сохранён", description: `${payment.employeeName} · ${formatNumber(payment.amount)} сом` });
+      await queryClient.invalidateQueries({ queryKey: ["attendance-report"] });
+    },
+    onError: (error) => showToast({ tone: "error", title: "Не удалось сохранить аванс", description: getErrorText(error) }),
+  });
 
   const hasLoadError = sessionQuery.error || statusQuery.error || networkQuery.error || reportQuery.error;
 
@@ -279,7 +265,25 @@ export function AttendancePage() {
           />
         ) : null}
 
-        {attendanceRequired && !attendanceDayOff ? (
+        {attendanceRequired && !automaticAttendance && !attendanceDayOff && !working && statusQuery.isSuccess && !attendanceOpeningTime ? (
+          <StatusPanel
+            tone="success"
+            title="Рабочий день завершён"
+            description={`Смена автоматически закрывается по графику филиала в ${statusQuery.data?.dayStatus.workEndsAt || "заданное время"}. Повторно открывать её сегодня не требуется.`}
+          />
+        ) : null}
+
+        {attendanceRequired && automaticAttendance && !attendanceDayOff ? (
+          <StatusPanel
+            tone="success"
+            title={working ? "Смена открыта автоматически" : "Автоматический учёт смены"}
+            description={working
+              ? `${statusQuery.data?.openRecord?.storeName || "Филиал"} · смена будет закрыта по графику.`
+              : "Смена откроется и закроется автоматически по графику филиала. Wi‑Fi и селфи не требуются."}
+          />
+        ) : null}
+
+        {attendanceRequired && !automaticAttendance && !attendanceDayOff && (working || attendanceOpeningTime) ? (
           <section className={styles.shiftPrompt}>
             <div className={styles.shiftIcon}>
               {working || networkStatus?.allowed ? <Wifi size={34} /> : <WifiOff size={34} />}
@@ -333,12 +337,24 @@ export function AttendancePage() {
               <div className={styles.sectionHead}>
                 <div>
                   <p>Отчеты</p>
-                  <h2>{ownerView ? "Табель сотрудников" : "Мой табель"}</h2>
+                  <h2>{teamView ? "Табель сотрудников" : "Мой табель"}</h2>
                 </div>
-                <button type="button" className={styles.secondaryButton} onClick={() => exportAttendanceCsv(report?.rows ?? [], dateFrom, dateTo)}>
-                  <Download size={18} />
-                  CSV
-                </button>
+                <div className={styles.headerActions}>
+                  {canManageAdvances ? (
+                    <button type="button" className={styles.advanceButton} onClick={() => setAdvanceOpen(true)}>
+                      <Banknote size={18} />
+                      Выдать аванс
+                    </button>
+                  ) : null}
+                  <button type="button" className={styles.secondaryButton} onClick={() => exportAttendanceCsv(report?.rows ?? [], dateFrom, dateTo)}>
+                    <Download size={18} />
+                    CSV
+                  </button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => window.print()} disabled={reportQuery.isLoading}>
+                    <Printer size={18} />
+                    Печать табеля
+                  </button>
+                </div>
               </div>
               <div className={styles.filters}>
                 <label className={styles.field}>
@@ -349,7 +365,7 @@ export function AttendancePage() {
                   <span>По дату</span>
                   <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
                 </label>
-                {ownerView ? (
+                {teamView ? (
                   <label className={styles.field}>
                     <span>Сотрудник</span>
                     <select value={userId} onChange={(event) => setUserId(event.target.value)}>
@@ -379,24 +395,19 @@ export function AttendancePage() {
                 </button>
               </div>
 
-              <div className={styles.totals}>
-                {totals.map((item) => (
-                  <article key={item.label}>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </article>
-                ))}
-              </div>
-
               {reportQuery.isLoading ? <StatusPanel title="Загрузка табеля" /> : null}
               {!reportQuery.isLoading ? (
                 <AttendanceTimesheet
                   users={userId ? uniqueUsers.filter((user) => user.id === userId) : uniqueUsers}
                   records={report?.rows ?? []}
                   calendar={report?.calendar ?? []}
+                  payments={report?.payments ?? []}
                   schedules={schedule.branches}
                   dateFrom={dateFrom}
                   dateTo={dateTo}
+                  editable={adminView}
+                  onSetMark={(input) => calendarMutation.mutateAsync(input)}
+                  onDeleteMark={(id) => deleteCalendarMutation.mutateAsync(id)}
                 />
               ) : null}
             </div>
@@ -520,82 +531,59 @@ export function AttendancePage() {
                   </button>
                 </section>
 
-                <section className={styles.calendarBox}>
-                  <div>
-                    <p>Календарь табеля</p>
-                    <span>Праздники, выходные, отгулы и сокращённые дни не считаются обычным отсутствием.</span>
-                  </div>
-                  <label className={styles.field}>
-                    <span>Тип дня</span>
-                    <select value={calendarDraft.kind} onChange={(event) => setCalendarDraft({ ...calendarDraft, kind: event.target.value as AttendanceCalendarKind, userId: "", storeId: "" })}>
-                      <option value="holiday">П — государственный праздник</option>
-                      <option value="day_off">В — выходной</option>
-                      <option value="leave">ОТ — согласованный отгул</option>
-                      <option value="short_day">СД — сокращённый день</option>
-                    </select>
-                  </label>
-                  <div className={styles.adminOpen}>
-                    <label className={styles.field}>
-                      <span>С даты</span>
-                      <input type="date" value={calendarDraft.dateFrom} onChange={(event) => setCalendarDraft({ ...calendarDraft, dateFrom: event.target.value, dateTo: calendarDraft.dateTo < event.target.value ? event.target.value : calendarDraft.dateTo })} />
-                    </label>
-                    <label className={styles.field}>
-                      <span>По дату</span>
-                      <input type="date" min={calendarDraft.dateFrom} value={calendarDraft.dateTo} onChange={(event) => setCalendarDraft({ ...calendarDraft, dateTo: event.target.value })} />
-                    </label>
-                  </div>
-                  {calendarDraft.kind === "leave" ? (
-                    <label className={styles.field}>
-                      <span>Сотрудник</span>
-                      <select value={calendarDraft.userId} onChange={(event) => setCalendarDraft({ ...calendarDraft, userId: event.target.value })}>
-                        <option value="">Выберите сотрудника</option>
-                        {calendarUsers.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
-                      </select>
-                    </label>
-                  ) : (
-                    <label className={styles.field}>
-                      <span>Филиал</span>
-                      <select value={calendarDraft.storeId} onChange={(event) => setCalendarDraft({ ...calendarDraft, storeId: event.target.value })}>
-                        <option value="">Все филиалы</option>
-                        {branchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {calendarDraft.kind === "short_day" ? (
-                    <label className={styles.field}>
-                      <span>Работа до</span>
-                      <input type="time" value={calendarDraft.workEndsAt} onChange={(event) => setCalendarDraft({ ...calendarDraft, workEndsAt: event.target.value })} />
-                    </label>
-                  ) : null}
-                  <label className={styles.field}>
-                    <span>Причина или название</span>
-                    <input value={calendarDraft.title} onChange={(event) => setCalendarDraft({ ...calendarDraft, title: event.target.value })} placeholder="Например: День независимости" />
-                  </label>
-                  <button type="button" onClick={() => calendarMutation.mutate(calendarDraft)} disabled={calendarMutation.isPending || (calendarDraft.kind === "leave" && !calendarDraft.userId)}>
-                    <CalendarPlus size={18} />
-                    {calendarMutation.isPending ? "Добавляю..." : "Добавить в табель"}
-                  </button>
-                  <div className={styles.calendarList}>
-                    {(report?.calendar ?? []).map((entry) => {
-                      const labels = { holiday: "П", day_off: "В", leave: "ОТ", short_day: "СД" };
-                      const employee = calendarUsers.find((item) => item.id === entry.userId);
-                      const branch = branchOptions.find((item) => normalizedBranchForUi(item.id) === normalizedBranchForUi(entry.storeId));
-                      return (
-                        <article key={entry.id}>
-                          <b>{labels[entry.kind]}</b>
-                          <div>
-                            <strong>{entry.title || (entry.kind === "leave" ? "Согласованный отгул" : entry.kind === "holiday" ? "Праздник" : entry.kind === "short_day" ? "Сокращённый день" : "Выходной")}</strong>
-                            <span>{entry.dateFrom === entry.dateTo ? entry.dateFrom : `${entry.dateFrom} — ${entry.dateTo}`} · {employee?.name || branch?.name || "Все филиалы"}{entry.workEndsAt ? ` · до ${entry.workEndsAt}` : ""}</span>
-                          </div>
-                          <button type="button" aria-label="Удалить запись" disabled={deleteCalendarMutation.isPending} onClick={() => deleteCalendarMutation.mutate(entry.id)}><Trash2 size={17} /></button>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
               </aside>
             ) : null}
           </section>
+        ) : null}
+        {advanceOpen ? (
+          <div className={styles.advanceBackdrop} role="presentation" onMouseDown={() => !advanceMutation.isPending && setAdvanceOpen(false)}>
+            <section className={styles.advanceDialog} role="dialog" aria-modal="true" aria-labelledby="advance-title" onMouseDown={(event) => event.stopPropagation()}>
+              <button type="button" className={styles.advanceClose} onClick={() => setAdvanceOpen(false)} disabled={advanceMutation.isPending} aria-label="Закрыть"><X size={20} /></button>
+              <span>Выплата сотруднику</span>
+              <h2 id="advance-title">Выдать аванс</h2>
+              <p>Сумма сохранится в Supabase и автоматически попадёт в табель выбранного дня.</p>
+              <div className={styles.advanceForm}>
+                <label className={styles.field}>
+                  <span>Сотрудник</span>
+                  <select value={advanceDraft.employeeId} onChange={(event) => setAdvanceDraft({ ...advanceDraft, employeeId: event.target.value })}>
+                    <option value="">Выберите сотрудника</option>
+                    {(report?.managementUsers ?? []).map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span>Дата выдачи</span>
+                  <input type="date" value={advanceDraft.paymentDate} onChange={(event) => setAdvanceDraft({ ...advanceDraft, paymentDate: event.target.value })} />
+                </label>
+                <label className={styles.field}>
+                  <span>Сумма, сом</span>
+                  <ClearableNumberInput min="1" max="10000000" value={advanceDraft.amount} onValueChange={(amount) => setAdvanceDraft({ ...advanceDraft, amount })} />
+                </label>
+                <label className={styles.field}>
+                  <span>Способ выдачи</span>
+                  <select value={advanceDraft.paymentMethod} onChange={(event) => setAdvanceDraft({ ...advanceDraft, paymentMethod: event.target.value })}>
+                    <option value="Наличные">Наличные</option>
+                    <option value="Перевод">Перевод</option>
+                  </select>
+                </label>
+                <label className={`${styles.field} ${styles.advanceComment}`}>
+                  <span>Комментарий</span>
+                  <input value={advanceDraft.comment} maxLength={500} onChange={(event) => setAdvanceDraft({ ...advanceDraft, comment: event.target.value })} placeholder="Необязательно" />
+                </label>
+              </div>
+              <div className={styles.advanceActions}>
+                <button type="button" className={styles.secondaryButton} onClick={() => setAdvanceOpen(false)} disabled={advanceMutation.isPending}>Отмена</button>
+                <button
+                  type="button"
+                  className={styles.advanceButton}
+                  disabled={advanceMutation.isPending || !advanceDraft.employeeId || advanceDraft.amount <= 0 || !advanceDraft.paymentDate}
+                  onClick={() => advanceMutation.mutate(advanceDraft)}
+                >
+                  <Banknote size={18} />
+                  {advanceMutation.isPending ? "Сохраняю…" : "Подтвердить выдачу"}
+                </button>
+              </div>
+            </section>
+          </div>
         ) : null}
       </div>
     </AppShell>

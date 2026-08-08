@@ -3,8 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, CloudDownload, Eye, EyeOff, KeyRound, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { CrmRole, CrmUser, CrmUserUpdate } from "@/src/fsd/entities/user";
-import { ROLE_LABELS } from "@/src/fsd/entities/user";
+import { ATTENDANCE_AUTO_PERMISSION, ATTENDANCE_BRANCH_VIEW_PERMISSION, ROLE_LABELS, type CrmRole, type CrmUser, type CrmUserUpdate } from "@/src/fsd/entities/user";
 import {
   isPercentPayrollScheme,
   PAYROLL_PERCENT_BASE_LABELS,
@@ -86,6 +85,7 @@ function UserCard({
   const reportProfitEditable = canGrantReportProfit(actor, draft.role, draft.permissions);
   const readOnlyAdmin = actor?.role !== "admin" && draft.role === "admin";
   const payrollEditable = editable && draft.payrollAvailable && !saving && !deleting;
+  const attendanceParticipant = !["admin", "owner"].includes(draft.role);
 
   const updatePayroll = (patch: Partial<UsersAccessDraft["payroll"]>) => {
     onChange(draft.id, { payroll: { ...draft.payroll, ...patch } });
@@ -204,6 +204,40 @@ function UserCard({
           >
             <option value="enabled">Участвует</option>
             <option value="disabled">Не участвует</option>
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span>Открытие рабочей смены</span>
+          <select
+            value={draft.permissions.includes(ATTENDANCE_AUTO_PERMISSION) ? "automatic" : "manual"}
+            disabled={!editable || saving || deleting || !attendanceParticipant || actor?.role !== "admin"}
+            onChange={(event) => {
+              const withoutMode = draft.permissions.filter((permission) => permission !== ATTENDANCE_AUTO_PERMISSION);
+              const permissions = event.target.value === "automatic"
+                ? [...withoutMode, ATTENDANCE_AUTO_PERMISSION]
+                : withoutMode;
+              onChange(draft.id, { permissions: normalizePermissions(draft.role, permissions) });
+            }}
+          >
+            <option value="manual">Сотрудник открывает сам</option>
+            <option value="automatic">Автоматически по графику</option>
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span>Видимость табеля</span>
+          <select
+            value={draft.permissions.includes(ATTENDANCE_BRANCH_VIEW_PERMISSION) ? "branch" : "self"}
+            disabled={!editable || saving || deleting || !attendanceParticipant || !actor || !["admin", "owner"].includes(actor.role)}
+            onChange={(event) => {
+              const withoutMode = draft.permissions.filter((permission) => permission !== ATTENDANCE_BRANCH_VIEW_PERMISSION);
+              const permissions = event.target.value === "branch"
+                ? [...withoutMode, ATTENDANCE_BRANCH_VIEW_PERMISSION]
+                : withoutMode;
+              onChange(draft.id, { permissions: normalizePermissions(draft.role, permissions) });
+            }}
+          >
+            <option value="self">Только свои данные</option>
+            <option value="branch">Все сотрудники своих филиалов</option>
           </select>
         </label>
         <label className={styles.field}>

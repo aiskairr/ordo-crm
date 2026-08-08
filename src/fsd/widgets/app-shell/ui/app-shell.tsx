@@ -34,7 +34,7 @@ import { SystemNews } from "@/src/fsd/features/system-news";
 import { MoySkladRequestMonitor } from "@/src/fsd/features/moysklad-request-monitor";
 import { AttendanceSelfieButton } from "@/src/fsd/features/attendance-selfie";
 import { getAttendanceNetworkStatus, getAttendanceStatus, openAttendanceShift } from "@/src/fsd/pages/attendance/api/attendance-api";
-import { formatDuration, isAttendanceRequiredForUser } from "@/src/fsd/pages/attendance/model/attendance-model";
+import { formatDuration, isAttendanceOpeningTime, isAttendanceRequiredForUser, isAutomaticAttendanceUser } from "@/src/fsd/pages/attendance/model/attendance-model";
 import { getShellSession, getUiSettings, logoutCrm, saveUiSettings } from "../api/app-shell-api";
 import {
   defaultUiSettings,
@@ -132,16 +132,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const sessionQuery = useQuery({ queryKey: ["crm-session"], queryFn: getShellSession });
   const user = sessionQuery.data?.user ?? null;
   const attendanceRequired = isAttendanceRequiredForUser(user);
+  const automaticAttendance = isAutomaticAttendanceUser(user);
   const settingsQuery = useQuery({ queryKey: ["crm-ui-settings"], queryFn: getUiSettings });
   const attendanceStatusQuery = useQuery({
     queryKey: ["attendance-status"],
     queryFn: getAttendanceStatus,
     enabled: Boolean(sessionQuery.data?.user),
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => query.state.data?.status === "working" ? 30_000 : false,
   });
   const attendanceNetworkQuery = useQuery({
     queryKey: ["attendance-network-status"],
     queryFn: getAttendanceNetworkStatus,
-    enabled: Boolean(user && attendanceRequired && attendanceStatusQuery.data?.dayStatus?.workingDay !== false && attendanceStatusQuery.data?.status !== "working"),
+    enabled: Boolean(user && attendanceRequired && !automaticAttendance && attendanceStatusQuery.data?.status !== "working" && isAttendanceOpeningTime(attendanceStatusQuery.data)),
     refetchOnWindowFocus: true,
     staleTime: 10_000,
   });
@@ -187,7 +190,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const initials = useMemo(() => getInitials(displayName), [displayName]);
   const attendanceWorking = attendanceStatusQuery.data?.status === "working";
   const attendanceDayOff = attendanceStatusQuery.data?.dayStatus?.workingDay === false;
-  const attendanceGateVisible = Boolean(user && attendanceRequired && !attendanceWorking && !attendanceDayOff);
+  const attendanceOpeningTime = isAttendanceOpeningTime(attendanceStatusQuery.data);
+  const attendanceGateVisible = Boolean(
+    user
+      && attendanceRequired
+      && !automaticAttendance
+      && attendanceStatusQuery.isSuccess
+      && !attendanceWorking
+      && !attendanceDayOff
+      && attendanceOpeningTime,
+  );
   const workMinutes = useWorkTimer(attendanceWorking ? attendanceStatusQuery.data?.openRecord?.checkInTime : undefined);
   const visibleNavItems = useMemo(
     () =>
@@ -359,11 +371,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link
             href="/attendance"
             className={`${styles.userAction} ${styles.attendanceAction}`}
-            title={attendanceWorking ? `Смена открыта: ${formatDuration(workMinutes)}` : attendanceDayOff ? attendanceStatusQuery.data?.dayStatus.label : "Открыть смену"}
+            title={attendanceWorking ? `Смена открыта: ${formatDuration(workMinutes)}` : attendanceDayOff ? attendanceStatusQuery.data?.dayStatus.label : automaticAttendance ? "Смена учитывается автоматически" : "Открыть смену"}
             onClick={() => setIsOpen(false)}
           >
             <Clock3 size={16} />
-            <span>{attendanceWorking ? `На работе · ${formatDuration(workMinutes)}` : attendanceDayOff ? `${attendanceStatusQuery.data?.dayStatus.code} · ${attendanceStatusQuery.data?.dayStatus.label}` : "Открыть смену"}</span>
+            <span>{attendanceWorking ? `На работе · ${formatDuration(workMinutes)}` : attendanceDayOff ? `${attendanceStatusQuery.data?.dayStatus.code} · ${attendanceStatusQuery.data?.dayStatus.label}` : automaticAttendance ? "Смена по графику" : "Открыть смену"}</span>
           </Link>
           <button
             className={`${styles.userAction} ${styles.settingsAction}`}
